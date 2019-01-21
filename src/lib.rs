@@ -1,6 +1,6 @@
 /*!
 This library provides the floating bar type, which allows for efficient
-representation of fractional numbers without loss of precision. It is based on
+representation of rational numbers without loss of precision. It is based on
 [this blog post](http://www.iquilezles.org/www/articles/floatingbar/floatingbar.htm).
 
 ## Structure
@@ -21,8 +21,8 @@ r64: sddddddfffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
 The fraction field stores both the numerator and the denominator as separate
 values. Their exact size at any given moment depends on the size field, which
-gives the position of the partition (the "bar") between the two values from the
-right.
+gives the position of the partition (the "bar") from the right between the two
+values.
 
 The denominator has an implicit 1 bit which goes in front of the actual value
 stored. Thus, a size field of zero has an implicit denominator value of 1,
@@ -35,16 +35,16 @@ the fraction field has), the numerator will take an implicit value of 1.
 Unfortunately, it's possible to have invalid values with this format. Invalid
 values are those which have a denominator size larger than the number of bits in
 the fraction field, and are represented as `NaN`. For example, the default `NAN`
-constant provided for `r32` by this crate has a denominator size of 31, and the
+constant provided for `r32` in this crate has a denominator size of 31, and the
 rest of the bits set to zero.
 
 To avoid headaches similar to those caused by floating-point arithmetic, this
-library provides methods and functionality that greatly limit the propagation of
-NaNs.
-NaNs should only occur when parsing a string with a
-value of "NaN".
-
-However, the methods provided do as much as possible to avoid propagating NaNs.
+library is designed to focus on the numeric value provided by the format, and
+therefore greatly limits the propagation of NaNs. Any operation that could give
+an invalid or impossible-to-represent value (e.g. when overflowing or dividing
+by zero) will panic instead of returning a NaN. Effort is put in to not clobber
+possible payload values in NaNs, but no guarantees about their preservation are
+made. NaNs should mostly only occur when parsing a string with a value of "NaN".
 */
 
 use std::fmt;
@@ -56,6 +56,14 @@ mod r64_t;
 pub use r32_t::r32;
 pub use r64_t::r64;
 
+/// An error which can be returned when parsing a rational number.
+/// 
+/// # Potential causes
+/// 
+/// Among other causes, `ParseRatioErr` can be thrown because of leading or
+/// trailing whitespace in the string e.g. when it is obtained from the standard
+/// input. Using the `str.trim()` method ensures that no whitespace remains
+/// before parsing.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseRatioErr {
