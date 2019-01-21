@@ -15,4 +15,4 @@ license = "0BSD"
 license-file = "LICENSE.txt"
 
 [dependencies]
-gcd = "1.1.0"
+gcd = "1.2.0"
