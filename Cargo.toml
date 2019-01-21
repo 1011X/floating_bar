@@ -3,6 +3,16 @@ name = "floating_bar"
 version = "0.1.0"
 authors = ["1011X <1011XXXXX@gmail.com>"]
 edition = "2018"
+description = "Representing rational numbers using the floating-bar number type."
+
+repository = "https://github.com/1011X/floating_bar"
+readme = "README.md"
+
+keywords = ["float", "floating", "bar", "rational"]
+categories = ["data-structures"]
+
+license = "0BSD"
+license-file = "LICENSE.txt"
 
 [dependencies]
 gcd = "1.1.0"
