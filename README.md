@@ -1,8 +1,7 @@
 # Floating Bar
 
 Provides the **floating-bar** type, which allows for efficient representation of
-rational numbers without loss of precision. It is based on [this blog post]
-(http://www.iquilezles.org/www/articles/floatingbar/floatingbar.htm).
+rational numbers without loss of precision. It is based on [this blog post](http://www.iquilezles.org/www/articles/floatingbar/floatingbar.htm).
 
 ## Use
 
