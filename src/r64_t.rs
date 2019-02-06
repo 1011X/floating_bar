@@ -16,8 +16,8 @@ use super::{ParseRatioErr, RatioErrKind, r32};
 pub struct r64(u64);
 
 const SIGN_BIT: u64 = 0x8000_0000_0000_0000;
-const SIZE_FIELD: u64 = 0x7e00_0000_0000_0000;
-const FRACTION_FIELD: u64 = 0x01ff_ffff_ffff_ffff;
+const SIZE_FIELD: u64 = SIGN_BIT - 1 << FRACTION_SIZE + 1 >> 1;
+const FRACTION_FIELD: u64 = (1 << FRACTION_SIZE) - 1;
 
 const FRACTION_SIZE: u64 = 57;
 
