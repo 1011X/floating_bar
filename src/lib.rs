@@ -41,10 +41,10 @@ rest of the bits set to zero.
 To avoid headaches similar to those caused by floating-point arithmetic, this
 library is designed to focus on the numeric value provided by the format, and
 therefore greatly limits the propagation of NaNs. Any operation that could give
-an invalid or impossible-to-represent value (e.g. when overflowing or dividing
-by zero) will panic instead of returning a NaN. Effort is put in to not clobber
-possible payload values in NaNs, but no guarantees about their preservation are
-made. NaNs should mostly only occur when parsing a string with a value of "NaN".
+an invalid or undefined value (e.g. when overflowing or dividing by zero) will
+panic instead of returning a NaN. Effort is put in to not clobber possible
+payload values in NaNs, but no guarantees about their preservation are made.
+NaNs should mostly only occur when parsing a string with a value of "NaN".
 */
 
 use std::fmt;
