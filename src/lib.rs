@@ -32,6 +32,8 @@ There can also be subnormal values. When the denominator takes up the whole
 fraction field (i.e. when the value of the size field equals the number of bits
 the fraction field has), the numerator will take an implicit value of 1.
 
+## NaN's
+
 Unfortunately, it's possible to have invalid values with this format. Invalid
 values are those which have a denominator size larger than the number of bits in
 the fraction field, and are represented as `NaN`. For example, the default `NAN`
@@ -39,12 +41,12 @@ constant provided for `r32` in this crate has a denominator size of 31, and the
 rest of the bits set to zero.
 
 To avoid headaches similar to those caused by floating-point arithmetic, this
-library is designed to focus on the numeric value provided by the format, and
-therefore greatly limits the propagation of NaNs. Any operation that could give
-an invalid or undefined value (e.g. when overflowing or dividing by zero) will
-panic instead of returning a NaN. Effort is put in to not clobber possible
-payload values in NaNs, but no guarantees about their preservation are made.
-NaNs should mostly only occur when parsing a string with a value of "NaN".
+library focuses on the numeric value of the format and greatly limits the
+propagation of NaNs. Any operation that could give an undefined value (e.g. when
+overflowing or dividing by zero) will panic instead of returning a NaN. Effort
+is put in to not clobber possible payload values in NaNs, but no guarantees
+about their preservation are made. NaNs should mostly only occur when parsing a
+string with a value of "NaN".
 */
 
 use std::fmt;
