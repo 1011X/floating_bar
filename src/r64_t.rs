@@ -114,9 +114,8 @@ impl r64 {
         unimplemented!()
     }
     
-    // TODO is rounding away from 0 necessary here, or is it a floating-point
-    // accuracy detail?
-    /// Returns the nearest integer to a number. Round half-way cases away from `0`.
+    /// Returns the nearest integer to a number. Round half-way cases away from
+    /// zero.
     #[inline]
     pub fn round(self) -> r64 {
         unimplemented!()
@@ -161,17 +160,28 @@ impl r64 {
     pub fn pow(self, n: i32) -> r64 {
         unimplemented!()
     }
-    /*
-    TODO consider whether to actually add these.
-    /// Takes the square root of a number.
+    
+    /// Takes the *checked* square root of a number.
     /// 
-    /// If `self` is positive and numerator and denominator are perfect squares
-    /// and are positive, returns their square root. Otherwise, returns `None`.
-    #[inline]
+    /// If `self` is positive and numerator and denominator are perfect squares,
+    /// returns their square root. Otherwise, returns `None`.
     pub fn checked_sqrt(self) -> Option<r64> {
         unimplemented!()
     }
     
+    /// Takes the square root of a number.
+    /// 
+    /// If `self` is positive, it approximates its square root by calculating
+    /// a repeated fraction for a fixed number of steps.
+    /// 
+    /// **Warning**: This method can result in a number that overflows easily if
+    /// it's used in other calculations later on, so use it with caution (or
+    /// better yet, discard it when you're done with it).
+    pub fn sqrt(self) -> r64 {
+        unimplemented!()
+    }
+    /*
+    TODO consider whether to actually add these.
     /// Takes the cube root of a number.
     /// 
     /// If `self` is positive and its numerator and denominator are perfect
@@ -223,7 +233,7 @@ impl r64 {
     #[inline]
     pub fn recip(self) -> r64 {
         assert!(self.numer() != 0, "attempt to divide by zero");
-        assert!(self.denom_size() < 26, "subnormal overflow");
+        assert!(self.denom_size() < FRACTION_SIZE, "subnormal overflow");
         r64::from_parts(self.is_negative(), self.denom(), self.numer())
     }
     
@@ -320,59 +330,6 @@ impl r64 {
     /// Checked integer remainder. Computes `self % rhs`, returning `None` if
     /// `rhs == 0` or the division results in overflow.
     pub fn checked_rem(self, rhs: r64) -> Option<r64> {
-        unimplemented!()
-    }
-    
-    /// Calculates `self` + `rhs`
-    /// 
-    /// Returns a tuple of the addition along with a boolean indicating whether
-    /// an arithmetic overflow would occur. If an overflow would have occurred
-    /// then the wrapped value is returned.
-    pub fn overflowing_add(self, rhs: r64) -> (r64, bool) {
-        unimplemented!()
-    }
-    
-    /// Calculates `self` - `rhs`
-    /// 
-    /// Returns a tuple of the subtraction along with a boolean indicating
-    /// whether an arithmetic overflow would occur. If an overflow would have
-    /// occurred then the wrapped value is returned.
-    pub fn overflowing_sub(self, rhs: r64) -> (r64, bool) {
-        unimplemented!()
-    }
-    
-    /// Calculates the multiplication of `self` and `rhs`.
-    /// 
-    /// Returns a tuple of the multiplication along with a boolean indicating
-    /// whether an arithmetic overflow would occur. If an overflow would have
-    /// occurred then the wrapped value is returned.
-    pub fn overflowing_mul(self, rhs: r64) -> (r64, bool) {
-        unimplemented!()
-    }
-    
-    /// Calculates the divisor when `self` is divided by `rhs`.
-    /// 
-    /// Returns a tuple of the divisor along with a boolean indicating whether
-    /// an arithmetic overflow would occur. If an overflow would occur then self
-    /// is returned.
-    /// 
-    /// # Panics
-    /// 
-    /// This function will panic if `rhs` is 0.
-    pub fn overflowing_div(self, rhs: r64) -> (r64, bool) {
-        unimplemented!()
-    }
-    
-    /// Calculates the remainder when `self` is divided by `rhs`.
-    /// 
-    /// Returns a tuple of the remainder after dividing along with a boolean
-    /// indicating whether an arithmetic overflow would occur. If an overflow
-    /// would occur then 0 is returned.
-    /// 
-    /// # Panics
-    /// 
-    /// This function will panic if `rhs` is 0.
-    pub fn overflowing_rem(self, rhs: r64) -> (r64, bool) {
         unimplemented!()
     }
 }
