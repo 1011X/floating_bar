@@ -12,7 +12,6 @@ keywords = ["float", "floating", "bar", "rational"]
 categories = ["data-structures"]
 
 license = "0BSD"
-license-file = "LICENSE.txt"
 
 [dependencies]
 gcd = "1.2.0"

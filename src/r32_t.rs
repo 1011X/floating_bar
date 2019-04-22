@@ -206,9 +206,8 @@ impl r32 {
     /// If `self` is positive, it approximates its square root by calculating
     /// a repeated fraction for a fixed number of steps.
     /// 
-    /// **Warning**: This method can result in a number that overflows easily if
-    /// it's used in other calculations later on, so use it with caution (or
-    /// better yet, discard it when you're done with it).
+    /// **Warning**: This method can give a number that overflows easily, so
+    /// use it with caution, and discard it as soon as you're done with it.
     pub fn sqrt(self) -> r32 {
         unimplemented!()
     }
@@ -274,9 +273,8 @@ impl r32 {
             (false, true) => other,
             (false, false) => match self.partial_cmp(&other).unwrap() {
                 Ordering::Less    => other,
-                Ordering::Greater => self,
                 // return self by default
-                Ordering::Equal   => self,
+                _ => self,
             }
         }
     }
@@ -293,9 +291,8 @@ impl r32 {
             (false, true) => other,
             (false, false) => match self.partial_cmp(&other).unwrap() {
                 Ordering::Greater => other,
-                Ordering::Less    => self,
                 // return self by default
-                Ordering::Equal   => self,
+                _ => self,
             }
         }
     }
@@ -414,7 +411,7 @@ impl FromStr for r32 {
     /// `Err(ParseRatioError)` if the string did not represent a valid number.
     /// Otherwise, `Ok(n)` where `n` is the floating-bar number represented by
     /// `src`.
-    fn from_str(mut src: &str) -> Result<Self, Self::Err> {
+    fn from_str(src: &str) -> Result<Self, Self::Err> {
         if src.is_empty() {
             return Err(ParseRatioErr { kind: RatioErrKind::Empty });
         }

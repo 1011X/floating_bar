@@ -51,6 +51,7 @@ string with a value of "NaN".
 
 use std::fmt;
 use std::error;
+use std::num::ParseIntError;
 
 mod r32_t;
 mod r64_t;
@@ -77,16 +78,24 @@ enum RatioErrKind {
     Empty,
     Invalid,
     Overflow,
+    Int(ParseIntError),
 }
 
 impl fmt::Display for ParseRatioErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(match self.kind {
-            RatioErrKind::Empty => "cannot parse rational from empty string",
-            RatioErrKind::Invalid => "invalid rational literal",
-            RatioErrKind::Overflow => "number too large to fit in target type",
-        })
+        match self.kind {
+            RatioErrKind::Empty => f.write_str("cannot parse rational from empty string"),
+            RatioErrKind::Invalid => f.write_str("invalid rational literal"),
+            RatioErrKind::Overflow => f.write_str("number too large to fit in target type"),
+            RatioErrKind::Int(ref pie) => write!(f, "{}", pie),
+        }
     }
 }
 
 impl error::Error for ParseRatioErr {}
+
+impl From<ParseIntError> for ParseRatioErr {
+    fn from(pie: ParseIntError) -> ParseRatioErr {
+        ParseRatioErr { kind: RatioErrKind::Int(pie) }
+    }
+}
