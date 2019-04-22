@@ -156,9 +156,41 @@ impl r32 {
     }
     
     /// Raises a number to an integer power.
+    // TODO: check that the new values fit in the type.
     #[inline]
-    pub fn pow(self, n: i32) -> r32 {
-        unimplemented!()
+    pub fn pow(self, p: i32) -> r32 {
+        let num = self.numer().pow(p.abs() as u32);
+        let den = self.denom().pow(p.abs() as u32);
+
+        // power is positive
+        if p >= 0 {
+            r32::from_parts(self.is_negative(), num, den)
+        }
+        // power is negative; switch numbers around
+        else {
+            r32::from_parts(self.is_negative(), den, num)
+        }
+    }
+    
+    /// Raises a number to an integer power.
+    // TODO: check that the new values fit in the type.
+    #[inline]
+    pub fn checked_pow(self, p: i32) -> Option<r32> {
+        let num = self.numer().checked_pow(p.abs() as u32);
+        let den = self.denom().checked_pow(p.abs() as u32);
+
+        match (num, den) {
+            (Some(num), Some(den)) =>
+                // power is positive
+                Some(if p >= 0 {
+                    r32::from_parts(self.is_negative(), num, den)
+                }
+                // power is negative; switch numbers around
+                else {
+                    r32::from_parts(self.is_negative(), den, num)
+                }),
+            _ => None
+        }
     }
     
     /// Takes the *checked* square root of a number.
@@ -189,14 +221,6 @@ impl r32 {
     /// cubes, returns their cube root. Otherwise, returns `None`.
     #[inline]
     pub fn checked_cbrt(self) -> Option<r32> {
-        unimplemented!()
-    }
-    
-    // TODO maybe?
-    /// Calculates the length of the hypotenuse of a right-angle triangle given
-    /// legs of length `x` and `y`.
-    #[inline]
-    pub fn hypot(self) -> r32 {
         unimplemented!()
     }
     */
