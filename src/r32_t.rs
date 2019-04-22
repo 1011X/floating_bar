@@ -7,6 +7,7 @@ use std::ops::*;
 use std::str::FromStr;
 
 use gcd::Gcd;
+use integer_sqrt::IntegerSquareRoot;
 
 use super::{ParseRatioErr, RatioErrKind};
 
@@ -28,6 +29,7 @@ pub const MIN_POSITIVE: r32 = r32(FRACTION_SIZE << FRACTION_SIZE | FRACTION_FIEL
 
 impl r32 {
     // TODO unfinished; check input values that overflow
+    #[doc(hidden)]
     #[inline]
     fn new(num: i32, den: u32) -> r32 {
         let size = 32 - den.leading_zeros() - 1;
@@ -103,12 +105,14 @@ impl r32 {
     // BEGIN related float stuff
     
     /// Returns the largest integer less than or equal to a number.
+    #[doc(hidden)]
     #[inline]
     pub fn floor(self) -> r32 {
         unimplemented!()
     }
     
     /// Returns the smallest integer greater than or equal to a number.
+    #[doc(hidden)]
     #[inline]
     pub fn ceil(self) -> r32 {
         unimplemented!()
@@ -116,6 +120,7 @@ impl r32 {
     
     /// Returns the nearest integer to a number. Round half-way cases away from
     /// zero.
+    #[doc(hidden)]
     #[inline]
     pub fn round(self) -> r32 {
         unimplemented!()
@@ -195,10 +200,18 @@ impl r32 {
     
     /// Takes the *checked* square root of a number.
     /// 
-    /// If `self` is positive and numerator and denominator are perfect squares,
-    /// returns their square root. Otherwise, returns `None`.
+    /// If `self` is positive and both the numerator and denominator are perfect
+    /// squares, this returns their square root. Otherwise, returns `None`.
     pub fn checked_sqrt(self) -> Option<r32> {
-        unimplemented!()
+        let nsqrt = self.numer().integer_sqrt();
+        let dsqrt = self.denom().integer_sqrt();
+
+        if self.numer() == nsqrt * nsqrt && self.denom() == dsqrt * dsqrt {
+            Some(r32::from_parts(self.is_negative(), nsqrt, dsqrt))
+        }
+        else {
+            None
+        }
     }
     
     /// Takes the square root of a number.
@@ -208,6 +221,7 @@ impl r32 {
     /// 
     /// **Warning**: This method can give a number that overflows easily, so
     /// use it with caution, and discard it as soon as you're done with it.
+    #[doc(hidden)]
     pub fn sqrt(self) -> r32 {
         unimplemented!()
     }
@@ -232,7 +246,9 @@ impl r32 {
     /// Returns `true` if the number is neither zero, subnormal, or `NaN`.
     #[inline]
     pub fn is_normal(self) -> bool {
-        unimplemented!()
+        self.numer() != 0
+        && !(self.numer() == 1 && self.denom() == FRACTION_SIZE)
+        && !self.is_nan()
     }
     
     /// Returns `true` if and only if `self` has a positive sign, including
@@ -327,30 +343,35 @@ impl r32 {
     
     /// Checked integer addition. Computes `self + rhs`, returning `None` if
     /// overflow occurred.
+    #[doc(hidden)]
     pub fn checked_add(self, rhs: r32) -> Option<r32> {
         unimplemented!()
     }
     
     /// Checked integer subtraction. Computes `self - rhs`, returning `None` if
     /// overflow occurred.
+    #[doc(hidden)]
     pub fn checked_sub(self, rhs: r32) -> Option<r32> {
         unimplemented!()
     }
     
     /// Checked integer multiplication. Computes `self * rhs`, returning `None`
     /// if overflow occurred.
+    #[doc(hidden)]
     pub fn checked_mul(self, rhs: r32) -> Option<r32> {
         unimplemented!()
     }
     
     /// Checked integer division. Computes `self / rhs`, returning `None` if
     /// `rhs == 0` or the division results in overflow.
+    #[doc(hidden)]
     pub fn checked_div(self, rhs: r32) -> Option<r32> {
         unimplemented!()
     }
     
     /// Checked integer remainder. Computes `self % rhs`, returning `None` if
     /// `rhs == 0` or the division results in overflow.
+    #[doc(hidden)]
     pub fn checked_rem(self, rhs: r32) -> Option<r32> {
         unimplemented!()
     }
@@ -621,6 +642,7 @@ impl Sub for r32 {
 impl Rem for r32 {
     type Output = r32;
     
+    #[doc(hidden)]
     fn rem(self, other: r32) -> r32 {
         unimplemented!()
     }
@@ -650,6 +672,31 @@ mod tests {
         assert_eq!(r32(2).signum(), r32(1));
         assert_eq!(r32::from_parts(true, 1, 1).signum(), r32::from_parts(true, 1, 1));
         assert_eq!(r32::from_parts(true, 2, 1).signum(), r32::from_parts(true, 1, 1));
+    }
+
+    #[test]
+    fn pow() {
+        assert_eq!(r32(0).pow(0), r32(1));
+        assert_eq!(r32(1).pow(1), r32(1));
+        assert_eq!(r32(2).pow(3), r32(8));
+        assert_eq!(r32(2).pow(-3), r32::from_str("1/8").unwrap());
+    }
+
+    #[test]
+    fn checked_pow() {
+        assert_eq!(r32(0).checked_pow(0), Some(r32(1)));
+        assert_eq!(r32(1).checked_pow(1), Some(r32(1)));
+        assert_eq!(r32(2).checked_pow(3), Some(r32(8)));
+        assert_eq!(r32(2).checked_pow(-3), Some(r32::from_str("1/8").unwrap()));
+        assert_eq!(r32(3).checked_pow(30), None);
+    }
+
+    #[test]
+    fn checked_sqrt() {
+        assert_eq!(r32(0).checked_sqrt(), Some(r32(0)));
+        assert_eq!(r32(1).checked_sqrt(), Some(r32(1)));
+        assert_eq!(r32(2).checked_sqrt(), None);
+        assert_eq!(r32(4).checked_sqrt(), Some(r32(2)));
     }
     
     #[test]

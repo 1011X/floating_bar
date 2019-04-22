@@ -15,3 +15,4 @@ license = "0BSD"
 
 [dependencies]
 gcd = "1.2.0"
+integer-sqrt = "0.1.2"

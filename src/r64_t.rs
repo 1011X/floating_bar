@@ -7,6 +7,7 @@ use std::ops::*;
 use std::str::FromStr;
 
 use gcd::Gcd;
+use integer_sqrt::IntegerSquareRoot;
 
 use super::{ParseRatioErr, RatioErrKind, r32};
 
@@ -103,12 +104,14 @@ impl r64 {
     // BEGIN related float stuff
     
     /// Returns the largest integer less than or equal to a number.
+    #[doc(hidden)]
     #[inline]
     pub fn floor(self) -> r64 {
         unimplemented!()
     }
     
     /// Returns the smallest integer greater than or equal to a number.
+    #[doc(hidden)]
     #[inline]
     pub fn ceil(self) -> r64 {
         unimplemented!()
@@ -116,6 +119,7 @@ impl r64 {
     
     /// Returns the nearest integer to a number. Round half-way cases away from
     /// zero.
+    #[doc(hidden)]
     #[inline]
     pub fn round(self) -> r64 {
         unimplemented!()
@@ -198,7 +202,15 @@ impl r64 {
     /// If `self` is positive and numerator and denominator are perfect squares,
     /// returns their square root. Otherwise, returns `None`.
     pub fn checked_sqrt(self) -> Option<r64> {
-        unimplemented!()
+        let nsqrt = self.numer().integer_sqrt();
+        let dsqrt = self.denom().integer_sqrt();
+
+        if self.numer() == nsqrt * nsqrt && self.denom() == dsqrt * dsqrt {
+            Some(r64::from_parts(self.is_negative(), nsqrt, dsqrt))
+        }
+        else {
+            None
+        }
     }
     
     /// Takes the square root of a number.
@@ -208,6 +220,7 @@ impl r64 {
     /// 
     /// **Warning**: This method can give a number that overflows easily, so
     /// use it with caution, and discard it as soon as you're done with it.
+    #[doc(hidden)]
     pub fn sqrt(self) -> r64 {
         unimplemented!()
     }
@@ -231,7 +244,9 @@ impl r64 {
     /// Returns `true` if the number is neither zero, subnormal, or `NaN`.
     #[inline]
     pub fn is_normal(self) -> bool {
-        unimplemented!()
+        self.numer() != 0
+        && !(self.numer() == 1 && self.denom() == FRACTION_SIZE)
+        && !self.is_nan()
     }
     
     /// Returns `true` if and only if `self` has a positive sign, including
@@ -328,30 +343,35 @@ impl r64 {
     
     /// Checked integer addition. Computes `self + rhs`, returning `None` if
     /// overflow occurred.
+    #[doc(hidden)]
     pub fn checked_add(self, rhs: r64) -> Option<r64> {
         unimplemented!()
     }
     
     /// Checked integer subtraction. Computes `self - rhs`, returning `None` if
     /// overflow occurred.
+    #[doc(hidden)]
     pub fn checked_sub(self, rhs: r64) -> Option<r64> {
         unimplemented!()
     }
     
     /// Checked integer multiplication. Computes `self * rhs`, returning `None`
     /// if overflow occurred.
+    #[doc(hidden)]
     pub fn checked_mul(self, rhs: r64) -> Option<r64> {
         unimplemented!()
     }
     
     /// Checked integer division. Computes `self / rhs`, returning `None` if
     /// `rhs == 0` or the division results in overflow.
+    #[doc(hidden)]
     pub fn checked_div(self, rhs: r64) -> Option<r64> {
         unimplemented!()
     }
     
     /// Checked integer remainder. Computes `self % rhs`, returning `None` if
     /// `rhs == 0` or the division results in overflow.
+    #[doc(hidden)]
     pub fn checked_rem(self, rhs: r64) -> Option<r64> {
         unimplemented!()
     }
@@ -644,6 +664,7 @@ impl Sub for r64 {
 impl Rem for r64 {
     type Output = r64;
     
+    #[doc(hidden)]
     fn rem(self, other: r64) -> r64 {
         unimplemented!()
     }
@@ -673,6 +694,31 @@ mod tests {
         assert_eq!(r64(2).signum(), r64(1));
         assert_eq!(r64::from_parts(true, 1, 1).signum(), r64::from_parts(true, 1, 1));
         assert_eq!(r64::from_parts(true, 2, 1).signum(), r64::from_parts(true, 1, 1));
+    }
+
+    #[test]
+    fn pow() {
+        assert_eq!(r64(0).pow(0), r64(1));
+        assert_eq!(r64(1).pow(1), r64(1));
+        assert_eq!(r64(2).pow(3), r64(8));
+        assert_eq!(r64(2).pow(-3), r64::from_str("1/8").unwrap());
+    }
+
+    #[test]
+    fn checked_pow() {
+        assert_eq!(r64(0).checked_pow(0), Some(r64(1)));
+        assert_eq!(r64(1).checked_pow(1), Some(r64(1)));
+        assert_eq!(r64(2).checked_pow(3), Some(r64(8)));
+        assert_eq!(r64(2).checked_pow(-3), Some(r64::from_str("1/8").unwrap()));
+        assert_eq!(r64(3).checked_pow(60), None);
+    }
+
+    #[test]
+    fn checked_sqrt() {
+        assert_eq!(r64(0).checked_sqrt(), Some(r64(0)));
+        assert_eq!(r64(1).checked_sqrt(), Some(r64(1)));
+        assert_eq!(r64(2).checked_sqrt(), None);
+        assert_eq!(r64(4).checked_sqrt(), Some(r64(2)));
     }
     
     #[test]
