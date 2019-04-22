@@ -420,7 +420,7 @@ impl FromStr for r32 {
             return Ok(NAN);
         }
         
-        // if bar exists, parse as fraction, otherwise as integer.
+        // if bar exists, parse as fraction
         if let Some(pos) = src.find('/') {
             // bar is at the end. invalid.
             if pos == src.len() - 1 {
@@ -453,15 +453,18 @@ impl FromStr for r32 {
                 Ok(r32::from_parts(sign, numerator.abs() as u32, denominator))
             }
         }
+        // otherwise, parse as integer.
         else {
             let numerator: i32 = src.parse()?;
-            let frac_size = 32 - numerator.leading_zeros();
+            let mag = numerator.checked_abs()
+                .ok_or(ParseRatioErr { kind: RatioErrKind::Overflow })?;
+            let frac_size = 32 - mag.leading_zeros();
             
             if frac_size > FRACTION_SIZE {
                 return Err(ParseRatioErr { kind: RatioErrKind::Overflow });
             }
             
-            Ok(r32::from_parts(numerator < 0, numerator.abs() as u32, 1))
+            Ok(r32::from_parts(numerator < 0, mag as u32, 1))
         }
     }
 }
