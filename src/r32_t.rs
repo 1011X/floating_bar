@@ -423,56 +423,48 @@ impl FromStr for r32 {
             return Ok(NAN);
         }
         
-        // set sign
-        let s = src.starts_with('-');
-        
-        // skip sign if set
-        if src.starts_with('+') || src.starts_with('-') {
-            src = &src[1..];
-        }
-        
         // if bar exists, parse as fraction, otherwise as integer.
-        // TODO deal with unwraps below
         if let Some(pos) = src.find('/') {
             // bar is at the end. invalid.
             if pos == src.len() - 1 {
                 return Err(ParseRatioErr { kind: RatioErrKind::Invalid });
             }
             
-            let numerator: u32 = src[0..pos].parse().unwrap();
-            let denominator: u32 = src[pos+1..].parse().unwrap();
+            let numerator: i32 = src[0..pos].parse()?;
+            let denominator: u32 = src[pos+1..].parse()?;
             
             if denominator == 0 {
                 return Err(ParseRatioErr { kind: RatioErrKind::Invalid });
             }
             
+            let sign = numerator < 0;
             let denom_size = 32 - denominator.leading_zeros() - 1;
             
-            // subnormals
-            if numerator == 1 && denom_size == 26 {
+            // if subnormal, return early
+            if numerator.abs() == 1 && denom_size == FRACTION_SIZE {
                 let denominator = denominator & FRACTION_FIELD;
-                Ok(r32::from_parts(s, 1, denominator))
+                return Ok(r32::from_parts(sign, 1, denominator));
+            }
+
+            // ensure both fragments fit in the fraction field
+            let frac_size = denom_size + (32 - numerator.leading_zeros());
+            
+            if frac_size > FRACTION_SIZE {
+                Err(ParseRatioErr { kind: RatioErrKind::Overflow })
             }
             else {
-                let frac_size = denom_size + (32 - numerator.leading_zeros());
-                
-                if frac_size > FRACTION_SIZE {
-                    Err(ParseRatioErr { kind: RatioErrKind::Overflow })
-                }
-                else {
-                    Ok(r32::from_parts(s, numerator, denominator))
-                }
+                Ok(r32::from_parts(sign, numerator.abs() as u32, denominator))
             }
         }
         else {
-            let numerator: u32 = src.parse().unwrap();
+            let numerator: i32 = src.parse()?;
             let frac_size = 32 - numerator.leading_zeros();
             
             if frac_size > FRACTION_SIZE {
                 return Err(ParseRatioErr { kind: RatioErrKind::Overflow });
             }
             
-            Ok(r32::from_parts(s, numerator, 1))
+            Ok(r32::from_parts(numerator < 0, numerator.abs() as u32, 1))
         }
     }
 }
