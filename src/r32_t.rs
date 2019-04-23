@@ -666,9 +666,9 @@ impl Sub for r32 {
 impl Rem for r32 {
     type Output = r32;
     
-    #[doc(hidden)]
     fn rem(self, other: r32) -> r32 {
-        unimplemented!()
+        let div = self / other;
+        ((div - div.floor()) * other).set_sign(self.is_negative())
     }
 }
 
@@ -832,6 +832,17 @@ mod tests {
         assert_eq!(r32(1) / r32(2), r32::from_parts(false, 1, 2));
         assert_eq!(r32(2) / r32(1), r32(2));
         assert_eq!(r32(2) / r32(2), r32(1));
+    }
+
+    #[test]
+    fn rem() {
+        assert_eq!(r32(5) % r32(2), r32(1));
+        assert_eq!(r32(6) % r32(2), r32(0));
+        assert_eq!(r32(8) % (r32(3) / r32(2)), r32(1) / r32(2));
+        // Rust modulus gives same sign as dividend, and so do we
+        assert_eq!(-r32(5) % r32(2), -r32(1));
+        assert_eq!(r32(5) % -r32(2), r32(1));
+        assert_eq!(-r32(5) % -r32(2), -r32(1));
     }
     
     #[test]

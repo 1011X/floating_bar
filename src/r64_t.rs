@@ -688,9 +688,9 @@ impl Sub for r64 {
 impl Rem for r64 {
     type Output = r64;
     
-    #[doc(hidden)]
     fn rem(self, other: r64) -> r64 {
-        unimplemented!()
+        let div = self / other;
+        ((div - div.floor()) * other).set_sign(self.is_negative())
     }
 }
 
@@ -854,6 +854,17 @@ mod tests {
         assert_eq!(r64(1) / r64(2), r64::from_parts(false, 1, 2));
         assert_eq!(r64(2) / r64(1), r64(2));
         assert_eq!(r64(2) / r64(2), r64(1));
+    }
+
+    #[test]
+    fn rem() {
+        assert_eq!(r64(5) % r64(2), r64(1));
+        assert_eq!(r64(6) % r64(2), r64(0));
+        assert_eq!(r64(8) % (r64(3) / r64(2)), r64(1) / r64(2));
+        // Rust modulus gives same sign as dividend, and so do we
+        assert_eq!(-r64(5) % r64(2), -r64(1));
+        assert_eq!(r64(5) % -r64(2), r64(1));
+        assert_eq!(-r64(5) % -r64(2), -r64(1));
     }
     
     #[test]
