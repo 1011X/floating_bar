@@ -58,7 +58,7 @@ impl r64 {
     #[inline]
     pub fn denom(self) -> u64 {
         let denom_region = (1 << self.denom_size()) - 1;
-        self.0 & denom_region | 1 << self.denom_size()
+        1 << self.denom_size() | self.0 & denom_region
     }
     
     /// Sets sign bit to the value given.
@@ -104,25 +104,49 @@ impl r64 {
     // BEGIN related float stuff
     
     /// Returns the largest integer less than or equal to a number.
-    #[doc(hidden)]
     #[inline]
     pub fn floor(self) -> r64 {
-        unimplemented!()
+        if self.is_negative() {
+            // if self is a whole number,
+            if self.numer() % self.denom() == 0 {
+                self
+            }
+            else {
+                r64::from_parts(self.is_negative(), self.numer() / self.denom() + 1, 1)
+            }
+        }
+        else {
+            self.trunc()
+        }
     }
     
     /// Returns the smallest integer greater than or equal to a number.
-    #[doc(hidden)]
     #[inline]
     pub fn ceil(self) -> r64 {
-        unimplemented!()
+        if self.is_negative() {
+            self.trunc()
+        }
+        else {
+            // if self is a whole number,
+            if self.numer() % self.denom() == 0 {
+                self
+            }
+            else {
+                r64::from_parts(self.is_negative(), self.numer() / self.denom() + 1, 1)
+            }
+        }
     }
     
     /// Returns the nearest integer to a number. Round half-way cases away from
     /// zero.
-    #[doc(hidden)]
     #[inline]
     pub fn round(self) -> r64 {
-        unimplemented!()
+        if self.is_negative() {
+            (self - r64(1) / r64(2)).ceil()
+        }
+        else {
+            (self + r64(1) / r64(2)).floor()
+        }
     }
     
     /// Returns the integer part of a number.
@@ -199,8 +223,8 @@ impl r64 {
     
     /// Takes the *checked* square root of a number.
     /// 
-    /// If `self` is positive and numerator and denominator are perfect squares,
-    /// returns their square root. Otherwise, returns `None`.
+    /// If `self` is positive and both the numerator and denominator are perfect
+    /// squares, this returns their square root. Otherwise, returns `None`.
     pub fn checked_sqrt(self) -> Option<r64> {
         let nsqrt = self.numer().integer_sqrt();
         let dsqrt = self.denom().integer_sqrt();
@@ -720,6 +744,30 @@ mod tests {
         assert_eq!(r64(2).checked_sqrt(), None);
         assert_eq!(r64(4).checked_sqrt(), Some(r64(2)));
     }
+
+    #[test]
+    fn floor() {
+        assert_eq!(r64::from_parts(false, 3, 2).floor(), r64(1));
+        assert_eq!(r64::from_parts(false, 2, 1).floor(), r64(2));
+        assert_eq!(r64::from_parts(true, 3, 2).floor(), r64::from(-2_i8));
+        assert_eq!(r64::from_parts(true, 2, 1).floor(), r64::from(-2_i8));
+    }
+
+    #[test]
+    fn ceil() {
+        assert_eq!(r64::from_parts(false, 3, 2).ceil(), r64(2));
+        assert_eq!(r64::from_parts(false, 2, 1).ceil(), r64(2));
+        assert_eq!(r64::from_parts(true, 3, 2).ceil(), r64::from(-1_i8));
+        assert_eq!(r64::from_parts(true, 2, 1).ceil(), r64::from(-2_i8));
+    }
+
+    #[test]
+    fn round() {
+        assert_eq!(r64(1).round(), r64(1));
+        assert_eq!((-r64(1)).round(), r64::from(-1_i8));
+        assert_eq!((r64(3) / r64(2)).round(), r64(2));
+        assert_eq!((-r64(3) / r64(2)).round(), r64::from(-2_i8));
+    }
     
     #[test]
     fn fract() {
@@ -731,6 +779,8 @@ mod tests {
     #[test]
     fn trunc() {
         assert_eq!(r64(5).trunc(), r64(5));
+        assert_eq!(r64::from_parts(false, 1, 2).trunc(), r64(0));
+        assert_eq!(r64::from_parts(true, 1, 2).trunc(), r64(0));
         assert_eq!(r64::from_parts(false, 3, 2).trunc(), r64(1));
         assert_eq!(r64::from_parts(true, 3, 2).trunc(), r64::from(-1 as i8));
     }

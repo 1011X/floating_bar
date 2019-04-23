@@ -59,7 +59,7 @@ impl r32 {
     #[inline]
     pub fn denom(self) -> u32 {
         let denom_region = (1 << self.denom_size()) - 1;
-        self.0 & denom_region | 1 << self.denom_size()
+        1 << self.denom_size() | self.0 & denom_region
     }
     
     /// Sets sign bit to the value given.
@@ -105,25 +105,49 @@ impl r32 {
     // BEGIN related float stuff
     
     /// Returns the largest integer less than or equal to a number.
-    #[doc(hidden)]
     #[inline]
     pub fn floor(self) -> r32 {
-        unimplemented!()
+        if self.is_negative() {
+            // if self is a whole number,
+            if self.numer() % self.denom() == 0 {
+                self
+            }
+            else {
+                r32::from_parts(self.is_negative(), self.numer() / self.denom() + 1, 1)
+            }
+        }
+        else {
+            self.trunc()
+        }
     }
     
     /// Returns the smallest integer greater than or equal to a number.
-    #[doc(hidden)]
     #[inline]
     pub fn ceil(self) -> r32 {
-        unimplemented!()
+        if self.is_negative() {
+            self.trunc()
+        }
+        else {
+            // if self is a whole number,
+            if self.numer() % self.denom() == 0 {
+                self
+            }
+            else {
+                r32::from_parts(self.is_negative(), self.numer() / self.denom() + 1, 1)
+            }
+        }
     }
     
     /// Returns the nearest integer to a number. Round half-way cases away from
     /// zero.
-    #[doc(hidden)]
     #[inline]
     pub fn round(self) -> r32 {
-        unimplemented!()
+        if self.is_negative() {
+            (self - r32(1) / r32(2)).ceil()
+        }
+        else {
+            (self + r32(1) / r32(2)).floor()
+        }
     }
     
     /// Returns the integer part of a number.
@@ -698,6 +722,30 @@ mod tests {
         assert_eq!(r32(2).checked_sqrt(), None);
         assert_eq!(r32(4).checked_sqrt(), Some(r32(2)));
     }
+
+    #[test]
+    fn floor() {
+        assert_eq!(r32(1).floor(), r32(1));
+        assert_eq!((-r32(1)).floor(), r32::from(-1_i8));
+        assert_eq!((r32(3) / r32(2)).floor(), r32(1));
+        assert_eq!((-r32(3) / r32(2)).floor(), r32::from(-2_i8));
+    }
+
+    #[test]
+    fn ceil() {
+        assert_eq!(r32(1).ceil(), r32(1));
+        assert_eq!((-r32(1)).ceil(), r32::from(-1_i8));
+        assert_eq!((r32(3) / r32(2)).ceil(), r32(2));
+        assert_eq!((-r32(3) / r32(2)).ceil(), r32::from(-1_i8));
+    }
+
+    #[test]
+    fn round() {
+        assert_eq!(r32(1).round(), r32(1));
+        assert_eq!((-r32(1)).round(), r32::from(-1_i8));
+        assert_eq!((r32(3) / r32(2)).round(), r32(2));
+        assert_eq!((-r32(3) / r32(2)).round(), r32::from(-2_i8));
+    }
     
     #[test]
     fn fract() {
@@ -709,6 +757,8 @@ mod tests {
     #[test]
     fn trunc() {
         assert_eq!(r32(5).trunc(), r32(5));
+        assert_eq!(r32::from_parts(false, 1, 2).trunc(), r32(0));
+        assert_eq!(r32::from_parts(true, 1, 2).trunc(), r32(0));
         assert_eq!(r32::from_parts(false, 3, 2).trunc(), r32(1));
         assert_eq!(r32::from_parts(true, 3, 2).trunc(), r32::from(-1 as i8));
     }
