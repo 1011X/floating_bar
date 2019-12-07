@@ -105,7 +105,6 @@ impl r32 {
     // BEGIN related float stuff
     
     /// Returns the largest integer less than or equal to a number.
-    #[inline]
     pub fn floor(self) -> r32 {
         if self.is_negative() {
             // if self is a whole number,
@@ -122,7 +121,6 @@ impl r32 {
     }
     
     /// Returns the smallest integer greater than or equal to a number.
-    #[inline]
     pub fn ceil(self) -> r32 {
         if self.is_negative() {
             self.trunc()
@@ -140,7 +138,6 @@ impl r32 {
     
     /// Returns the nearest integer to a number. Round half-way cases away from
     /// zero.
-    #[inline]
     pub fn round(self) -> r32 {
         if self.is_negative() {
             (self - r32(1) / r32(2)).ceil()
@@ -174,7 +171,6 @@ impl r32 {
     /// * `1` if the number is positive
     /// * `-1` if the number is negative
     /// * `0` if the number is `+0`, `-0`, or `NaN`
-    #[inline]
     pub fn signum(self) -> r32 {
         if self.numer() == 0 || self.is_nan() {
             r32(0)
@@ -186,7 +182,6 @@ impl r32 {
     
     /// Raises a number to an integer power.
     // TODO: check that the new values fit in the type.
-    #[inline]
     pub fn pow(self, p: i32) -> r32 {
         let num = self.numer().pow(p.abs() as u32);
         let den = self.denom().pow(p.abs() as u32);
@@ -203,7 +198,6 @@ impl r32 {
     
     /// Raises a number to an integer power.
     // TODO: check that the new values fit in the type.
-    #[inline]
     pub fn checked_pow(self, p: i32) -> Option<r32> {
         let num = self.numer().checked_pow(p.abs() as u32);
         let den = self.denom().checked_pow(p.abs() as u32);
@@ -304,7 +298,6 @@ impl r32 {
     /// Returns the maximum of the two numbers.
     /// 
     /// If one of the arguments is `NaN`, then the other argument is returned.
-    #[inline]
     pub fn max(self, other: r32) -> r32 {
         match (self.is_nan(), other.is_nan()) {
             // this clobbers any "payload" bits being used.
@@ -322,7 +315,6 @@ impl r32 {
     /// Returns the minimum of the two numbers.
     /// 
     /// If one of the arguments is `NaN`, then the other argument is returned.
-    #[inline]
     pub fn min(self, other: r32) -> r32 {
         match (self.is_nan(), other.is_nan()) {
             // this clobbers any "payload" bits being used.
