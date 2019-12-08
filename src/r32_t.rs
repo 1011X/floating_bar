@@ -241,7 +241,9 @@ impl r32 {
     /// use it with caution, and discard it as soon as you're done with it.
     #[doc(hidden)]
     pub fn sqrt(self) -> r32 {
-        unimplemented!()
+        // TODO: maybe there's a better way?
+        let f: f32 = self.into();
+        r32::from(f.sqrt())
     }
     
     /*
@@ -527,6 +529,68 @@ impl From<i16> for r32 {
     fn from(v: i16) -> Self {
         let n = if v == i16::min_value() { 32768 } else { v.abs() as u32 };
         r32::from_parts(v.is_negative(), n, 1)
+    }
+}
+
+impl From<f32> for r32 {
+    /// Based on: https://www.johndcook.com/blog/2010/10/20/best-rational-approximation/
+    fn from(mut f: f32) -> Self {
+        // why 13? bc it's fraction_size / 2
+        // div by 2 is to have enough space for both numer and denom.
+        // don't count implicit bit because then we can only represent 0 - 0.5
+        // in a number that could be 0 - 1.
+        let N = (1 << 13) - 1; // 2^13 - 1 = 8191
+        let is_lorge = f.abs() > 1.0;
+        let is_neg = f < 0.0;
+        
+        if f.is_nan() || f.is_infinite() {
+            return NAN;
+        }
+        
+        if is_lorge { f = f.recip(); }
+        if is_neg   { f = f.abs();   }
+        
+        let (mut a, mut b) = (0, 1); // lower
+        let (mut c, mut d) = (1, 1); // upper
+        let mut is_mediant = false;
+        
+        // while neither denoms are too big,
+        while b <= N && d <= N {
+            let mediant = (a + c) as f32 / (b + d) as f32;
+            
+            if f == mediant {
+                is_mediant = true;
+                break;
+            }
+            else if f > mediant {
+                a = a + c;
+                b = b + d;
+            }
+            else {
+                c = a + c;
+                d = b + d;
+            }
+        }
+        
+        let result = if is_mediant {
+            // if N can contain sum of both denoms,
+            if b + d <= N { (a + c, b + d) } // use sum of numers & sum of denoms
+            // else if upper bound denom is bigger than lower bound denom,
+            else if d > b { (c, d) } // use upper bound
+            else          { (a, b) } // else, use lower bound
+        else {
+            // if lower bound denom is too big,
+            if b > N { (c, d) } // use upper bound
+            else     { (a, b) } // else, lower bound
+        };
+        
+        // use reciprocal if original number wasn't between 0 and 1
+        if is_lorge {
+            return r32::from_parts(is_neg, result.1, result.0);
+        }
+        else {
+            return r32::from_parts(is_neg, result.0, result.1);
+        }
     }
 }
 
