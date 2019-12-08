@@ -579,6 +579,7 @@ impl From<f32> for r32 {
             // else if upper bound denom is bigger than lower bound denom,
             else if d > b { (c, d) } // use upper bound
             else          { (a, b) } // else, use lower bound
+        }
         else {
             // if lower bound denom is too big,
             if b > N { (c, d) } // use upper bound
