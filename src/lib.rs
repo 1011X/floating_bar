@@ -92,7 +92,14 @@ impl fmt::Display for ParseRatioErr {
     }
 }
 
-impl error::Error for ParseRatioErr {}
+impl error::Error for ParseRatioErr {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self.kind {
+            RatioErrKind::Int(ref pie) => Some(pie),
+            _ => None
+        }
+    }
+}
 
 impl From<ParseIntError> for ParseRatioErr {
     fn from(pie: ParseIntError) -> ParseRatioErr {
