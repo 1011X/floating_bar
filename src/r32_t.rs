@@ -13,7 +13,7 @@ use super::{ParseRatioErr, RatioErrKind};
 
 /// The 32-bit floating bar type.
 #[allow(non_camel_case_types)]
-#[derive(Clone, Copy, Eq, Default, Hash)]
+#[derive(Clone, Copy, Eq, Default)]
 pub struct r32(u32);
 
 const SIGN_BIT: u32 = 0x8000_0000;
@@ -203,15 +203,16 @@ impl r32 {
         let den = self.denom().checked_pow(p.abs() as u32);
 
         match (num, den) {
-            (Some(num), Some(den)) =>
+            (Some(num), Some(den)) => Some(
                 // power is positive
-                Some(if p >= 0 {
+                if p >= 0 {
                     r32::from_parts(self.is_negative(), num, den)
                 }
                 // power is negative; switch numbers around
                 else {
                     r32::from_parts(self.is_negative(), den, num)
-                }),
+                }
+            ),
             _ => None
         }
     }
@@ -309,7 +310,7 @@ impl r32 {
             (false, false) => match self.partial_cmp(&other).unwrap() {
                 Ordering::Less    => other,
                 // return self by default
-                _ => self,
+                _ => self
             }
         }
     }
@@ -326,7 +327,7 @@ impl r32 {
             (false, false) => match self.partial_cmp(&other).unwrap() {
                 Ordering::Greater => other,
                 // return self by default
-                _ => self,
+                _ => self
             }
         }
     }

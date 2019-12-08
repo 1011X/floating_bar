@@ -13,7 +13,7 @@ use super::{ParseRatioErr, RatioErrKind, r32};
 
 /// The 64-bit floating bar type.
 #[allow(non_camel_case_types)]
-#[derive(Clone, Copy, Eq, Default, Hash)]
+#[derive(Clone, Copy, Eq, Default)]
 pub struct r64(u64);
 
 const SIGN_BIT: u64 = 0x8000_0000_0000_0000;
@@ -305,10 +305,8 @@ impl r64 {
             (true, false) => self,
             (false, true) => other,
             (false, false) => match self.partial_cmp(&other).unwrap() {
-                Ordering::Less    => other,
-                Ordering::Greater => self,
-                // return self by default
-                Ordering::Equal   => self,
+                Ordering::Less => other,
+                _ => self
             }
         }
     }
@@ -324,9 +322,7 @@ impl r64 {
             (false, true) => other,
             (false, false) => match self.partial_cmp(&other).unwrap() {
                 Ordering::Greater => other,
-                Ordering::Less    => self,
-                // return self by default
-                Ordering::Equal   => self,
+                _ => self
             }
         }
     }
