@@ -10,7 +10,7 @@ To use this library, add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-floating_bar = "0.1.0"
+floating_bar = "0.2.1"
 ```
 
 ## Contributing

@@ -83,19 +83,23 @@ enum RatioErrKind {
 
 impl fmt::Display for ParseRatioErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.kind {
-            RatioErrKind::Empty => f.write_str("cannot parse rational from empty string"),
-            RatioErrKind::Invalid => f.write_str("invalid rational literal"),
-            RatioErrKind::Overflow => f.write_str("number too large to fit in target type"),
-            RatioErrKind::Int(ref pie) => write!(f, "{}", pie),
+        match &self.kind {
+            RatioErrKind::Empty =>
+            	f.write_str("cannot parse rational from empty string"),
+            RatioErrKind::Invalid =>
+            	f.write_str("invalid rational literal"),
+            RatioErrKind::Overflow =>
+            	f.write_str("number too large to fit in target type"),
+            RatioErrKind::Int(pie) =>
+            	write!(f, "{}", pie),
         }
     }
 }
 
 impl error::Error for ParseRatioErr {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self.kind {
-            RatioErrKind::Int(ref pie) => Some(pie),
+        match &self.kind {
+            RatioErrKind::Int(pie) => Some(pie),
             _ => None
         }
     }
