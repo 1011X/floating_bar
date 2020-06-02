@@ -1,6 +1,6 @@
 [package]
 name = "floating_bar"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["1011X <1011XXXXX@gmail.com>"]
 edition = "2018"
 description = "Representing rational numbers using the floating-bar number type."
@@ -16,3 +16,4 @@ license = "0BSD"
 [dependencies]
 gcd = "2.0.1"
 integer-sqrt = "0.1.3"
+#safe_arch = "0.3.1"

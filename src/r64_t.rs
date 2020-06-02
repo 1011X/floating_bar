@@ -679,16 +679,17 @@ impl Mul for r64 {
         let mut n = self.numer() as u128 * other.numer() as u128;
         let mut d = self.denom() as u128 * other.denom() as u128;
         
-        let gcd = n.gcd(d);
-        n /= gcd;
-        d /= gcd;
+        let mut min_size =
+        	((128 - d.leading_zeros() - 1) + (128 - n.leading_zeros())) as u64;
         
-        dbg!(d);
+        if min_size > FRACTION_SIZE {
+		    let gcd = n.gcd(d);
+		    n /= gcd;
+		    d /= gcd;
+		    min_size = ((128 - d.leading_zeros() - 1) + (128 - n.leading_zeros())) as u64;
+	    }
         
-        debug_assert!(
-            ((128 - d.leading_zeros() - 1) + (128 - n.leading_zeros())) as u64 <= FRACTION_SIZE,
-            "attempt to multiply with overflow"
-        );
+        debug_assert!(min_size > FRACTION_SIZE, "attempt to multiply with overflow");
         
         r64::from_parts(s, n as u64, d as u64)
     }
@@ -721,16 +722,17 @@ impl Add for r64 {
         let s = num.is_negative();
         let mut num = num.abs() as u128;
         
-        let gcd = num.gcd(den);
-        num /= gcd;
-        den /= gcd;
+        let mut min_size =
+        	((128 - den.leading_zeros() - 1) + (128 - num.leading_zeros())) as u64;
         
-        dbg!(den);
+        if min_size > FRACTION_SIZE {
+		    let gcd = num.gcd(den);
+		    num /= gcd;
+		    den /= gcd;
+		    min_size = ((128 - den.leading_zeros() - 1) + (128 - num.leading_zeros())) as u64;
+	    }
         
-        debug_assert!(
-            ((128 - den.leading_zeros() - 1) + (128 - num.leading_zeros())) as u64 <= FRACTION_SIZE,
-            "attempt to add with overflow"
-        );
+        debug_assert!(min_size > FRACTION_SIZE, "attempt to add with overflow");
         
         r64::from_parts(s, num as u64, den as u64)
     }
@@ -755,6 +757,9 @@ impl Rem for r64 {
 
 #[cfg(test)]
 mod tests {
+	extern crate test;
+	
+	use test::Bencher;
     use super::*;
     
     #[test]
@@ -976,5 +981,51 @@ mod tests {
         assert_eq!(format!("{}", r64::from_parts(false, 0, 1)), "0");
         assert_eq!(format!("{}", NAN), "NaN");
         assert_eq!(format!("{}", r64::from_parts(true, 3, 2)), "-3/2");
+    }
+    
+    
+    
+    #[bench]
+    fn f64_addition(b: &mut Bencher) {
+    	let mut floats = Vec::new();
+    	for i in 0..1000 {
+    		floats.push(i as f64);
+		}
+    	b.iter(|| {
+    		floats.iter().fold(0.0, |a, b| a + *b)
+    	})
+    }
+    
+    #[bench]
+    fn r64_addition(b: &mut Bencher) {
+    	let mut ratios = Vec::new();
+    	for i in 0_i16..1000 {
+    		ratios.push(r64::from(i));
+		}
+    	b.iter(|| {
+    		ratios.iter().fold(r64(0), |a, b| a + *b)
+    	})
+    }
+    
+    #[bench]
+    fn f64_multiplication(b: &mut Bencher) {
+    	let mut floats = Vec::new();
+    	for i in 0_i16..1000 {
+    		floats.push(i as f64);
+		}
+    	b.iter(|| {
+    		floats.iter().fold(0.0, |a, &b| a * b)
+    	})
+    }
+    
+    #[bench]
+    fn r64_multiplication(b: &mut Bencher) {
+    	let mut ratios = Vec::new();
+    	for i in 0_i16..1000 {
+    		ratios.push(r64::from(i));
+		}
+    	b.iter(|| {
+    		ratios.iter().fold(r64(0), |a, &b| a * b)
+    	})
     }
 }

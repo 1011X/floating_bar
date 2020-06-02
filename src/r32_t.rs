@@ -181,7 +181,7 @@ impl r32 {
     }
     
     /// Raises a number to an integer power.
-    // TODO: check that the new values fit in the type.
+    // TODO: check that the new values fit in the type. Is the 
     pub fn pow(self, p: i32) -> r32 {
         let num = self.numer().pow(p.abs() as u32);
         let den = self.denom().pow(p.abs() as u32);
@@ -304,11 +304,11 @@ impl r32 {
     pub fn max(self, other: r32) -> r32 {
         match (self.is_nan(), other.is_nan()) {
             // this clobbers any "payload" bits being used.
-            (true, true) => NAN,
-            (true, false) => self,
-            (false, true) => other,
+            (true, true)   => NAN,
+            (true, false)  => self,
+            (false, true)  => other,
             (false, false) => match self.partial_cmp(&other).unwrap() {
-                Ordering::Less    => other,
+                Ordering::Less => other,
                 // return self by default
                 _ => self
             }
@@ -321,9 +321,9 @@ impl r32 {
     pub fn min(self, other: r32) -> r32 {
         match (self.is_nan(), other.is_nan()) {
             // this clobbers any "payload" bits being used.
-            (true, true) => NAN,
-            (true, false) => self,
-            (false, true) => other,
+            (true, true)   => NAN,
+            (true, false)  => self,
+            (false, true)  => other,
             (false, false) => match self.partial_cmp(&other).unwrap() {
                 Ordering::Greater => other,
                 // return self by default
@@ -541,18 +541,18 @@ impl From<f32> for r32 {
         // don't count implicit bit because then we can only represent 0 - 0.5
         // in a number that could be 0 - 1.
         let N = (1 << 13) - 1; // 2^13 - 1 = 8191
-        let is_lorge = f.abs() > 1.0;
+        //let is_lorge = f.abs() > 1.0;
         let is_neg = f < 0.0;
         
         if f.is_nan() || f.is_infinite() {
             return NAN;
         }
         
-        if is_lorge { f = f.recip(); }
+        //if is_lorge { f = f.recip(); }
         if is_neg   { f = f.abs();   }
         
         let (mut a, mut b) = (0, 1); // lower
-        let (mut c, mut d) = (1, 1); // upper
+        let (mut c, mut d) = (1, 0); // upper
         let mut is_mediant = false;
         
         // while neither denoms are too big,
@@ -587,12 +587,12 @@ impl From<f32> for r32 {
         };
         
         // use reciprocal if original number wasn't between 0 and 1
-        if is_lorge {
+        /*if is_lorge {
             return r32::from_parts(is_neg, result.1, result.0);
         }
-        else {
+        else {*/
             return r32::from_parts(is_neg, result.0, result.1);
-        }
+        //}
     }
 }
 
@@ -660,14 +660,19 @@ impl Mul for r32 {
         let mut n = self.numer() as u64 * other.numer() as u64;
         let mut d = self.denom() as u64 * other.denom() as u64;
         
-        let gcd = n.gcd(d);
-        n /= gcd;
-        d /= gcd;
+        {
+        let mut min_size =
+        	(64 - d.leading_zeros() - 1) + (64 - n.leading_zeros());
         
-        debug_assert!(
-            (64 - d.leading_zeros() - 1) + (64 - n.leading_zeros()) <= FRACTION_SIZE,
-            "attempt to multiply with overflow"
-        );
+        if min_size > FRACTION_SIZE {
+		    let gcd = n.gcd(d);
+		    n /= gcd;
+		    d /= gcd;
+		    min_size = (64 - d.leading_zeros() - 1) + (64 - n.leading_zeros());
+	    }
+        
+        debug_assert!(min_size > FRACTION_SIZE, "attempt to multiply with overflow");
+        }
         
         r32::from_parts(s, n as u32, d as u32)
     }
@@ -681,6 +686,7 @@ impl Div for r32 {
     }
 }
 
+// TODO amortize simplification?
 impl Add for r32 {
     type Output = r32;
     
@@ -700,14 +706,19 @@ impl Add for r32 {
         let s = num.is_negative();
         let mut num = num.abs() as u64;
         
-        let gcd = num.gcd(den);
-        num /= gcd;
-        den /= gcd;
+        {
+        let mut min_size =
+        	(64 - den.leading_zeros() - 1) + (64 - num.leading_zeros());
         
-        debug_assert!(
-            (64 - den.leading_zeros() - 1) + (64 - num.leading_zeros()) <= FRACTION_SIZE,
-            "attempt to add with overflow"
-        );
+        if min_size > FRACTION_SIZE {
+		    let gcd = num.gcd(den);
+		    num /= gcd;
+		    den /= gcd;
+		    min_size = (64 - den.leading_zeros() - 1) + (64 - num.leading_zeros());
+	    }
+        
+        debug_assert!(min_size > FRACTION_SIZE, "attempt to add with overflow");
+        }
         
         r32::from_parts(s, num as u32, den as u32)
     }
@@ -732,6 +743,9 @@ impl Rem for r32 {
 
 #[cfg(test)]
 mod tests {
+	extern crate test;
+	
+	use test::Bencher;
     use super::*;
     
     #[test]
@@ -943,6 +957,16 @@ mod tests {
     }
     
     #[test]
+    fn from_f32() {
+    	todo!();
+        assert_eq!("0".parse::<r32>().unwrap(), r32(0));
+        assert_eq!("1".parse::<r32>().unwrap(), r32(1));
+        assert_eq!("+1".parse::<r32>().unwrap(), r32(1));
+        assert_eq!("-1".parse::<r32>().unwrap(), r32::from(-1 as i8));
+        assert_eq!("1/1".parse::<r32>().unwrap(), r32(1));
+    }
+    
+    #[test]
     fn debug() {
         assert_eq!(format!("{:?}", r32::from_parts(true, 0, 1)), "-0/1");
         assert_eq!(format!("{:?}", NAN), "NaN");
@@ -953,5 +977,49 @@ mod tests {
         assert_eq!(format!("{}", r32::from_parts(false, 0, 1)), "0");
         assert_eq!(format!("{}", NAN), "NaN");
         assert_eq!(format!("{}", r32::from_parts(true, 3, 2)), "-3/2");
+    }
+    
+    #[bench]
+    fn f32_addition(b: &mut Bencher) {
+    	let mut floats = Vec::new();
+    	for i in 0..1000 {
+    		floats.push(i as f32);
+		}
+    	b.iter(|| {
+    		floats.iter().fold(0.0, |a, b| a + *b)
+    	})
+    }
+    
+    #[bench]
+    fn r32_addition(b: &mut Bencher) {
+    	let mut ratios = Vec::new();
+    	for i in 0_i16..1000 {
+    		ratios.push(r32::from(i));
+		}
+    	b.iter(|| {
+    		ratios.iter().fold(r32(0), |a, b| a + *b)
+    	})
+    }
+    
+    #[bench]
+    fn f32_multiplication(b: &mut Bencher) {
+    	let mut floats = Vec::new();
+    	for i in 0_i16..1000 {
+    		floats.push(i as f32);
+		}
+    	b.iter(|| {
+    		floats.iter().fold(0.0, |a, &b| a * b)
+    	})
+    }
+    
+    #[bench]
+    fn r32_multiplication(b: &mut Bencher) {
+    	let mut ratios = Vec::new();
+    	for i in 0_i16..1000 {
+    		ratios.push(r32::from(i));
+		}
+    	b.iter(|| {
+    		ratios.iter().fold(r32(0), |a, &b| a * b)
+    	})
     }
 }
