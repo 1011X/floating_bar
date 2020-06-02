@@ -49,7 +49,7 @@ about their preservation are made. NaNs should mostly only occur when parsing a
 string with a value of "NaN".
 */
 
-#![feature(test)]
+#![cfg_attr(feature = "bench", feature(test))]
 
 use std::fmt;
 use std::error;
