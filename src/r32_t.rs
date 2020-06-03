@@ -110,12 +110,10 @@ impl r32 {
             // if self is a whole number,
             if self.numer() % self.denom() == 0 {
                 self
-            }
-            else {
+            } else {
                 r32::from_parts(self.is_negative(), self.numer() / self.denom() + 1, 1)
             }
-        }
-        else {
+        } else {
             self.trunc()
         }
     }
@@ -124,13 +122,11 @@ impl r32 {
     pub fn ceil(self) -> r32 {
         if self.is_negative() {
             self.trunc()
-        }
-        else {
+        } else {
             // if self is a whole number,
             if self.numer() % self.denom() == 0 {
                 self
-            }
-            else {
+            } else {
                 r32::from_parts(self.is_negative(), self.numer() / self.denom() + 1, 1)
             }
         }
@@ -141,8 +137,7 @@ impl r32 {
     pub fn round(self) -> r32 {
         if self.is_negative() {
             (self - r32(1) / r32(2)).ceil()
-        }
-        else {
+        } else {
             (self + r32(1) / r32(2)).floor()
         }
     }
@@ -174,8 +169,7 @@ impl r32 {
     pub fn signum(self) -> r32 {
         if self.numer() == 0 || self.is_nan() {
             r32(0)
-        }
-        else {
+        } else {
             r32(self.0 & SIGN_BIT | 1)
         }
     }
@@ -189,9 +183,8 @@ impl r32 {
         // power is positive
         if p >= 0 {
             r32::from_parts(self.is_negative(), num, den)
-        }
-        // power is negative; switch numbers around
-        else {
+        } else {
+        	// power is negative; switch numbers around
             r32::from_parts(self.is_negative(), den, num)
         }
     }
@@ -207,9 +200,8 @@ impl r32 {
                 // power is positive
                 if p >= 0 {
                     r32::from_parts(self.is_negative(), num, den)
-                }
-                // power is negative; switch numbers around
-                else {
+                } else {
+		            // power is negative; switch numbers around
                     r32::from_parts(self.is_negative(), den, num)
                 }
             ),
@@ -227,8 +219,7 @@ impl r32 {
 
         if self.numer() == nsqrt * nsqrt && self.denom() == dsqrt * dsqrt {
             Some(r32::from_parts(self.is_negative(), nsqrt, dsqrt))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -492,9 +483,8 @@ impl FromStr for r32 {
             else {
                 Ok(r32::from_parts(sign, numerator.abs() as u32, denominator))
             }
-        }
-        // otherwise, parse as integer.
-        else {
+        } else {
+		    // otherwise, parse as integer.
             let numerator: i32 = src.parse()?;
             let mag = numerator.checked_abs()
                 .ok_or(ParseRatioErr { kind: RatioErrKind::Overflow })?;
@@ -562,12 +552,10 @@ impl From<f32> for r32 {
             if f == mediant {
                 is_mediant = true;
                 break;
-            }
-            else if f > mediant {
+            } else if f > mediant {
                 a = a + c;
                 b = b + d;
-            }
-            else {
+            } else {
                 c = a + c;
                 d = b + d;
             }
@@ -579,8 +567,7 @@ impl From<f32> for r32 {
             // else if upper bound denom is bigger than lower bound denom,
             else if d > b { (c, d) } // use upper bound
             else          { (a, b) } // else, use lower bound
-        }
-        else {
+        } else {
             // if lower bound denom is too big,
             if b > N { (c, d) } // use upper bound
             else     { (a, b) } // else, lower bound
@@ -671,7 +658,7 @@ impl Mul for r32 {
 		    min_size = (64 - d.leading_zeros() - 1) + (64 - n.leading_zeros());
 	    }
         
-        debug_assert!(min_size > FRACTION_SIZE, "attempt to multiply with overflow");
+        debug_assert!(min_size <= FRACTION_SIZE, "attempt to multiply with overflow");
         }
         
         r32::from_parts(s, n as u32, d as u32)
@@ -717,7 +704,7 @@ impl Add for r32 {
 		    min_size = (64 - den.leading_zeros() - 1) + (64 - num.leading_zeros());
 	    }
         
-        debug_assert!(min_size > FRACTION_SIZE, "attempt to add with overflow");
+        debug_assert!(min_size <= FRACTION_SIZE, "attempt to add with overflow");
         }
         
         r32::from_parts(s, num as u32, den as u32)
@@ -956,9 +943,9 @@ mod tests {
         assert_eq!("1/1".parse::<r32>().unwrap(), r32(1));
     }
     
-    #[test]
+    // TODO
+    #[test] #[ignore]
     fn from_f32() {
-    	todo!();
         assert_eq!("0".parse::<r32>().unwrap(), r32(0));
         assert_eq!("1".parse::<r32>().unwrap(), r32(1));
         assert_eq!("+1".parse::<r32>().unwrap(), r32(1));

@@ -109,12 +109,10 @@ impl r64 {
             // if self is a whole number,
             if self.numer() % self.denom() == 0 {
                 self
-            }
-            else {
+            } else {
                 r64::from_parts(self.is_negative(), self.numer() / self.denom() + 1, 1)
             }
-        }
-        else {
+        } else {
             self.trunc()
         }
     }
@@ -123,13 +121,11 @@ impl r64 {
     pub fn ceil(self) -> r64 {
         if self.is_negative() {
             self.trunc()
-        }
-        else {
+        } else {
             // if self is a whole number,
             if self.numer() % self.denom() == 0 {
                 self
-            }
-            else {
+            } else {
                 r64::from_parts(self.is_negative(), self.numer() / self.denom() + 1, 1)
             }
         }
@@ -140,8 +136,7 @@ impl r64 {
     pub fn round(self) -> r64 {
         if self.is_negative() {
             (self - r64(1) / r64(2)).ceil()
-        }
-        else {
+        } else {
             (self + r64(1) / r64(2)).floor()
         }
     }
@@ -173,8 +168,7 @@ impl r64 {
     pub fn signum(self) -> r64 {
         if self.numer() == 0 || self.is_nan() {
             r64(0)
-        }
-        else {
+        } else {
             r64(self.0 & SIGN_BIT | 1)
         }
     }
@@ -188,9 +182,8 @@ impl r64 {
         // power is positive
         if p >= 0 {
             r64::from_parts(self.is_negative(), num, den)
-        }
-        // power is negative; switch numbers around
-        else {
+        } else {
+		    // power is negative; switch numbers around
             r64::from_parts(self.is_negative(), den, num)
         }
     }
@@ -225,8 +218,7 @@ impl r64 {
 
         if self.numer() == nsqrt * nsqrt && self.denom() == dsqrt * dsqrt {
             Some(r64::from_parts(self.is_negative(), nsqrt, dsqrt))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -598,8 +590,7 @@ impl From<f64> for r64 {
             // else if upper bound denom is bigger than lower bound denom,
             else if d > b { (c, d) } // use upper bound
             else          { (a, b) } // else, use lower bound
-        }
-        else {
+        } else {
             // if lower bound denom is too big,
             if b > N { (c, d) } // use upper bound
             else     { (a, b) } // else, lower bound
@@ -608,8 +599,7 @@ impl From<f64> for r64 {
         // use reciprocal if original number wasn't between 0 and 1
         if is_lorge {
             return r64::from_parts(is_neg, result.1, result.0);
-        }
-        else {
+        } else {
             return r64::from_parts(is_neg, result.0, result.1);
         }
     }
@@ -689,7 +679,7 @@ impl Mul for r64 {
 		    min_size = ((128 - d.leading_zeros() - 1) + (128 - n.leading_zeros())) as u64;
 	    }
         
-        debug_assert!(min_size > FRACTION_SIZE, "attempt to multiply with overflow");
+        debug_assert!(min_size <= FRACTION_SIZE, "attempt to multiply with overflow");
         
         r64::from_parts(s, n as u64, d as u64)
     }
@@ -732,7 +722,7 @@ impl Add for r64 {
 		    min_size = ((128 - den.leading_zeros() - 1) + (128 - num.leading_zeros())) as u64;
 	    }
         
-        debug_assert!(min_size > FRACTION_SIZE, "attempt to add with overflow");
+        debug_assert!(min_size <= FRACTION_SIZE, "attempt to add with overflow");
         
         r64::from_parts(s, num as u64, den as u64)
     }
