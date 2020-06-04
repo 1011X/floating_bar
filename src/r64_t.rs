@@ -16,11 +16,11 @@ use super::{ParseRatioErr, RatioErrKind, r32};
 #[derive(Clone, Copy, Eq, Default)]
 pub struct r64(u64);
 
+const FRACTION_SIZE: u64 = 57;
+
 const SIGN_BIT: u64 = 0x8000_0000_0000_0000;
 const SIZE_FIELD: u64 = SIGN_BIT - 1 << FRACTION_SIZE + 1 >> 1;
 const FRACTION_FIELD: u64 = (1 << FRACTION_SIZE) - 1;
-
-const FRACTION_SIZE: u64 = 57;
 
 pub const NAN: r64 = r64(SIZE_FIELD);
 pub const MAX: r64 = r64(FRACTION_FIELD);
@@ -28,18 +28,21 @@ pub const MIN: r64 = r64(SIGN_BIT | FRACTION_FIELD);
 pub const MIN_POSITIVE: r64 = r64(FRACTION_SIZE << FRACTION_SIZE | FRACTION_FIELD);
 
 impl r64 {
-    // TODO unfinished; check input values that overflow
     #[inline]
-    fn new(num: i64, den: u64) -> r64 {
-        let size = 64 - den.leading_zeros() - 1;
-        let denom_field = (1 << size) - 1;
-        
-        r64(0).set_sign(num.is_negative())
-        .set_denom_size(size as u64)
-        .set_fraction(
-            ((denom_field ^ FRACTION_FIELD) >> size & num.abs() as u64) << size |
-            den & denom_field
+    pub fn from_parts(sign: bool, numer: u64, denom: u64) -> r64 {
+        let denom_size = 64 - denom.leading_zeros() - 1;
+        let denom_mask = (1 << denom_size) - 1;
+        let numer_mask = denom_mask ^ FRACTION_FIELD;
+        r64(
+            if sign { SIGN_BIT } else { 0 } |
+            (denom_size as u64) << FRACTION_SIZE |
+            numer << denom_size & numer_mask | denom & denom_mask
         )
+    }
+    
+    #[inline]
+    pub fn new(numer: i64, denom: u64) -> r64 {
+        r64::from_parts(numer.is_negative(), numer.abs() as u64, denom)
     }
     
     #[inline]
@@ -50,8 +53,11 @@ impl r64 {
     /// Returns the numerator value for this rational number.
     #[inline]
     pub fn numer(self) -> u64 {
-        if self.denom_size() == FRACTION_SIZE { 1 }
-        else { (self.0 & FRACTION_FIELD) >> self.denom_size() }
+        if cfg!(feature = "denormals") && self.denom_size() == FRACTION_SIZE {
+        	1
+    	} else {
+    		(self.0 & FRACTION_FIELD) >> self.denom_size()
+		}
     }
     
     /// Returns the denominator value for this rational number.
@@ -70,25 +76,8 @@ impl r64 {
     }
     
     #[inline]
-    fn set_denom_size(self, size: u64) -> r64 {
-        r64(self.0 & !SIZE_FIELD | (size & 0x3f) << FRACTION_SIZE)
-    }
-    
-    #[inline]
-    fn set_fraction(self, frac: u64) -> r64 {
-        r64(self.0 & !FRACTION_FIELD | frac & FRACTION_FIELD)
-    }
-    
-    #[inline]
-    fn from_parts(sign: bool, numer: u64, denom: u64) -> r64 {
-        let size = 64 - denom.leading_zeros() - 1;
-        let denom_field = (1 << size) - 1;
-        r64(
-            if sign { SIGN_BIT } else { 0 } |
-            (size as u64) << FRACTION_SIZE |
-            ((denom_field ^ FRACTION_FIELD) >> size & numer) << size |
-            denom & denom_field
-        )
+    fn set_fraction(self, numer: u64, denom: u64) -> r64 {
+        r64::from_parts(self.is_sign_negative(), numer, denom)
     }
     
     #[inline]
@@ -98,7 +87,7 @@ impl r64 {
     
     #[inline]
     fn is_sign_negative(self) -> bool {
-        self.0 & SIGN_BIT != 0
+        !self.is_sign_positive()
     }
     
     // BEGIN related float stuff
@@ -110,7 +99,7 @@ impl r64 {
             if self.numer() % self.denom() == 0 {
                 self
             } else {
-                r64::from_parts(self.is_negative(), self.numer() / self.denom() + 1, 1)
+                self.set_fraction(self.numer() / self.denom() + 1, 1)
             }
         } else {
             self.trunc()
@@ -126,7 +115,7 @@ impl r64 {
             if self.numer() % self.denom() == 0 {
                 self
             } else {
-                r64::from_parts(self.is_negative(), self.numer() / self.denom() + 1, 1)
+                self.set_fraction(self.numer() / self.denom() + 1, 1)
             }
         }
     }
@@ -144,20 +133,20 @@ impl r64 {
     /// Returns the integer part of a number.
     #[inline]
     pub fn trunc(self) -> r64 {
-        r64::from_parts(self.is_negative(), self.numer() / self.denom(), 1)
+        self.set_fraction(self.numer() / self.denom(), 1)
     }
     
     /// Returns the fractional part of a number.
     #[inline]
     pub fn fract(self) -> r64 {
         let d = self.denom();
-        r64::from_parts(self.is_negative(), self.numer() % d, d)
+        self.set_fraction(self.numer() % d, d)
     }
     
     /// Computes the absolute value of `self`. Returns NaN if the number is NaN.
     #[inline]
     pub fn abs(self) -> r64 {
-        self.set_sign(false)
+        r64(self.0 & !SIGN_BIT)
     }
     
     /// Returns a number that represents the sign of `self`.
@@ -181,10 +170,10 @@ impl r64 {
 
         // power is positive
         if p >= 0 {
-            r64::from_parts(self.is_negative(), num, den)
+            self.set_fraction(num, den)
         } else {
 		    // power is negative; switch numbers around
-            r64::from_parts(self.is_negative(), den, num)
+            self.set_fraction(den, num)
         }
     }
     
@@ -198,11 +187,11 @@ impl r64 {
             (Some(num), Some(den)) =>
                 // power is positive
                 Some(if p >= 0 {
-                    r64::from_parts(self.is_negative(), num, den)
+                    self.set_fraction(num, den)
                 }
                 // power is negative; switch numbers around
                 else {
-                    r64::from_parts(self.is_negative(), den, num)
+                    self.set_fraction(den, num)
                 }),
             _ => None
         }
@@ -217,7 +206,7 @@ impl r64 {
         let dsqrt = self.denom().integer_sqrt();
 
         if self.numer() == nsqrt * nsqrt && self.denom() == dsqrt * dsqrt {
-            Some(r64::from_parts(self.is_negative(), nsqrt, dsqrt))
+            Some(self.set_fraction(nsqrt, dsqrt))
         } else {
             None
         }
@@ -250,15 +239,18 @@ impl r64 {
     /// Returns `true` if this value is `NaN` and `false` otherwise.
     #[inline]
     pub fn is_nan(self) -> bool {
-        self.denom_size() > FRACTION_SIZE
+    	if cfg!(feature = "denormals") {
+	        self.denom_size() > FRACTION_SIZE
+        } else {
+        	self.denom_size() >= FRACTION_SIZE
+        }
     }
     
     /// Returns `true` if the number is neither zero, subnormal, or `NaN`.
     #[inline]
     pub fn is_normal(self) -> bool {
         self.numer() != 0
-        && !(self.numer() == 1 && self.denom() == FRACTION_SIZE)
-        && !self.is_nan()
+        && self.denom_size() < FRACTION_SIZE
     }
     
     /// Returns `true` if and only if `self` has a positive sign, including
@@ -284,7 +276,7 @@ impl r64 {
     pub fn recip(self) -> r64 {
         assert!(self.numer() != 0, "attempt to divide by zero");
         assert!(self.denom_size() < FRACTION_SIZE, "subnormal overflow");
-        r64::from_parts(self.is_negative(), self.denom(), self.numer())
+        self.set_fraction(self.denom(), self.numer())
     }
     
     /// Returns the maximum of the two numbers.
@@ -328,7 +320,7 @@ impl r64 {
     pub fn from_bits(bits: u64) -> r64 { r64(bits) }
     
     /// Cancels out common factors between the numerator and the denominator.
-    pub fn simplify(self) -> r64 {
+    pub fn normalize(self) -> r64 {
         if self.is_nan() {
             return self;
         }
@@ -342,7 +334,7 @@ impl r64 {
         
         // cancel out common factors
         let gcd = n.gcd(d);
-        r64::from_parts(self.is_negative(), n / gcd, d / gcd)
+        self.set_fraction(n / gcd, d / gcd)
     }
     
     // BEGIN related integer stuff
@@ -389,7 +381,7 @@ impl fmt::Display for r64 {
             return f.write_str("NaN");
         }
         
-        let norm = self.simplify();
+        let norm = self.normalize();
         
         if norm.is_negative() {
             f.write_str("-")?;
@@ -465,6 +457,7 @@ impl FromStr for r64 {
             let denom_size = 64 - denominator.leading_zeros() - 1;
             
             // if subnormal, return early
+            #[cfg(feature = "denormals")]
             if numerator.abs() == 1 && denom_size as u64 == FRACTION_SIZE {
                 let denominator = denominator & FRACTION_FIELD;
                 return Ok(r64::from_parts(sign, 1, denominator));
@@ -475,8 +468,7 @@ impl FromStr for r64 {
             
             if frac_size as u64 > FRACTION_SIZE {
                 Err(ParseRatioErr { kind: RatioErrKind::Overflow })
-            }
-            else {
+            } else {
                 Ok(r64::from_parts(sign, numerator.abs() as u64, denominator))
             }
         }
@@ -503,7 +495,7 @@ impl From<u8> for r64 {
 
 impl From<i8> for r64 {
     fn from(v: i8) -> Self {
-        let n = if v == i8::min_value() { 128 } else { v.abs() as u64 };
+        let n = if v == i8::MIN { 128 } else { v.abs() as u64 };
         r64::from_parts(v.is_negative(), n, 1)
     }
 }
@@ -515,7 +507,7 @@ impl From<u16> for r64 {
 
 impl From<i16> for r64 {
     fn from(v: i16) -> Self {
-        let n = if v == i16::min_value() { 32768 } else { v.abs() as u64 };
+        let n = if v == i16::MIN { 32768 } else { v.abs() as u64 };
         r64::from_parts(v.is_negative(), n, 1)
     }
 }
@@ -527,14 +519,14 @@ impl From<u32> for r64 {
 
 impl From<i32> for r64 {
     fn from(v: i32) -> Self {
-        let n = if v == i32::min_value() { 4294967296 } else { v.abs() as u64 };
+        let n = if v == i32::MIN { 2147483648 } else { v.abs() as u64 };
         r64::from_parts(v.is_negative(), n, 1)
     }
 }
 
 impl From<r32> for r64 {
     fn from(v: r32) -> Self {
-        r64::from_parts(v.is_negative(), v.numer() as u64, v.denom() as u64)
+        r64::from_parts(v.is_sign_negative(), v.numer() as u64, v.denom() as u64)
     }
 }
 
@@ -551,7 +543,7 @@ impl From<f64> for r64 {
         // div by 2 is to have enough space for both numer and denom.
         // plus 1 is to count implicit bit bc numer and denom can both have 29
         // bits of precision here.
-        let N = (1 << 29) - 1; // 2^29 - 1 = 536870911
+        const N: u64 = (1 << 29) - 1; // 2^29 - 1 = 536870911
         let is_lorge = f.abs() > 1.0;
         let is_neg = f < 0.0;
         
@@ -573,12 +565,10 @@ impl From<f64> for r64 {
             if f == mediant {
                 is_mediant = true;
                 break;
-            }
-            else if f > mediant {
+            } else if f > mediant {
                 a = a + c;
                 b = b + d;
-            }
-            else {
+            } else {
                 c = a + c;
                 d = b + d;
             }
@@ -631,7 +621,7 @@ impl PartialEq for r64 {
     fn eq(&self, other: &r64) -> bool {
         self.is_nan() && other.is_nan()
         || self.numer() == 0 && other.numer() == 0
-        || self.simplify().0 == other.simplify().0
+        || self.normalize().0 == other.normalize().0
     }
 }
 
@@ -665,21 +655,25 @@ impl Mul for r64 {
     type Output = r64;
     
     fn mul(self, other: r64) -> r64 {
-        let s = self.is_negative() != other.is_negative();
+        let s = self.is_sign_negative() != other.is_sign_negative();
         let mut n = self.numer() as u128 * other.numer() as u128;
         let mut d = self.denom() as u128 * other.denom() as u128;
         
-        let mut min_size =
+        let mut size =
         	((128 - d.leading_zeros() - 1) + (128 - n.leading_zeros())) as u64;
         
-        if min_size > FRACTION_SIZE {
+        if size > FRACTION_SIZE {
 		    let gcd = n.gcd(d);
 		    n /= gcd;
 		    d /= gcd;
-		    min_size = ((128 - d.leading_zeros() - 1) + (128 - n.leading_zeros())) as u64;
+		    size = ((128 - d.leading_zeros() - 1) + (128 - n.leading_zeros())) as u64;
 	    }
         
-        debug_assert!(min_size <= FRACTION_SIZE, "attempt to multiply with overflow");
+        if cfg!(feature = "denormals") {
+	        debug_assert!(size < FRACTION_SIZE, "attempt to multiply with overflow");
+        } else {
+	        debug_assert!(size <= FRACTION_SIZE, "attempt to multiply with overflow");
+        }
         
         r64::from_parts(s, n as u64, d as u64)
     }
@@ -753,15 +747,16 @@ mod tests {
     use super::*;
     
     #[test]
-    fn simplify() {
-        assert_eq!(r64::from_parts(false, 4, 2).simplify(), r64::from_parts(false, 2, 1));
-        assert_eq!(r64::from_parts(true, 4, 2).simplify(), r64::from_parts(true, 2, 1));
+    fn normalize() {
+        assert_eq!(r64::from_parts(false, 4, 2).normalize(), r64::from_parts(false, 2, 1));
+        assert_eq!(r64::from_parts(true, 4, 2).normalize(), r64::from_parts(true, 2, 1));
     }
     
     #[test]
     fn neg() {
         assert_eq!((-r64(0)).0, SIGN_BIT);
         assert_eq!((-r64(SIGN_BIT)).0, 0);
+        assert_eq!(-r64(1), r64::from_parts(true, 1, 1));
     }
     
     #[test]

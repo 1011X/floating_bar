@@ -10,8 +10,16 @@ To use this library, add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-floating_bar = "0.2.1"
+floating_bar = "0.2.3"
 ```
+
+## Features
+
+### `denormals`
+
+This enables denormal values. When the value of the denominator takes up the whole fraction field, the numerator will take an implicit value of 1.
+
+Due to the performance penalty of calculating with denormal values, this is disabled by default.
 
 ## Contributing
 

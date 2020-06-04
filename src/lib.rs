@@ -28,25 +28,27 @@ The denominator has an implicit 1 bit which goes in front of the actual value
 stored. Thus, a size field of zero has an implicit denominator value of 1,
 making it compatible with integers.
 
-There can also be subnormal values. When the denominator takes up the whole
-fraction field (i.e. when the value of the size field equals the number of bits
-the fraction field has), the numerator will take an implicit value of 1.
+## Features
+
+### `denormals`
+
+This enables denormal values. When the value of the denominator takes up the
+whole fraction field, the numerator will take an implicit value of 1.
+
+Due to the performance penalty of calculating with denormal values, this is
+disabled by default.
 
 ## NaN's
 
 Unfortunately, it's possible to have invalid values with this format. Invalid
 values are those which have a denominator size larger than the number of bits in
-the fraction field, and are represented as `NaN`. For example, the default `NAN`
-constant provided for `r32` in this crate has a denominator size of 31, and the
-rest of the bits set to zero.
+the fraction field, and are represented as `NaN`.
 
-To avoid headaches similar to those caused by floating-point arithmetic, this
-library focuses on the numeric value of the format and greatly limits the
-propagation of NaNs. Any operation that could give an undefined value (e.g. when
-overflowing or dividing by zero) will panic instead of returning a NaN. Effort
-is put in to not clobber possible payload values in NaNs, but no guarantees
-about their preservation are made. NaNs should mostly only occur when parsing a
-string with a value of "NaN".
+This library focuses on the numeric value of the format and is meant to limit
+the propagation of NaNs. Any operation that could give an undefined value (e.g.
+when overflowing or dividing by zero) will panic instead of returning a NaN.
+Effort is put in to not clobber possible payload values in NaNs, but no
+guarantees are made.
 */
 
 #![cfg_attr(feature = "bench", feature(test))]
@@ -69,7 +71,6 @@ pub use r64_t::r64;
 /// trailing whitespace in the string e.g. when it is obtained from the standard
 /// input. Using the `str.trim()` method ensures that no whitespace remains
 /// before parsing.
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseRatioErr {
     kind: RatioErrKind,
@@ -93,7 +94,7 @@ impl fmt::Display for ParseRatioErr {
             RatioErrKind::Overflow =>
             	f.write_str("number too large to fit in target type"),
             RatioErrKind::Int(pie) =>
-            	write!(f, "{}", pie),
+            	pie.fmt(f),
         }
     }
 }

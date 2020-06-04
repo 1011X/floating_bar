@@ -20,3 +20,4 @@ integer-sqrt = "0.1.3"
 
 [features]
 "bench" = []
+"denormals" = []
