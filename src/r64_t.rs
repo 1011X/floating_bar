@@ -738,7 +738,7 @@ impl Rem for r64 {
 		((div - div.floor()) * other).set_sign(self.is_negative())
 	}
 }
-
+/*
 #[cfg(test)]
 mod tests {
 	extern crate test;
@@ -967,50 +967,5 @@ mod tests {
 		assert_eq!(format!("{}", NAN), "NaN");
 		assert_eq!(format!("{}", r64::from_parts(true, 3, 2)), "-3/2");
 	}
-	
-	
-	
-	#[bench]
-	fn f64_addition(b: &mut Bencher) {
-		let mut floats = Vec::new();
-		for i in 0..1000 {
-			floats.push(i as f64);
-		}
-		b.iter(|| {
-			floats.iter().fold(0.0, |a, b| a + *b)
-		})
-	}
-	
-	#[bench]
-	fn r64_addition(b: &mut Bencher) {
-		let mut ratios = Vec::new();
-		for i in 0_i16..1000 {
-			ratios.push(r64::from(i));
-		}
-		b.iter(|| {
-			ratios.iter().fold(r64(0), |a, b| a + *b)
-		})
-	}
-	
-	#[bench]
-	fn f64_multiplication(b: &mut Bencher) {
-		let mut floats = Vec::new();
-		for i in 0_i16..1000 {
-			floats.push(i as f64);
-		}
-		b.iter(|| {
-			floats.iter().fold(0.0, |a, &b| a * b)
-		})
-	}
-	
-	#[bench]
-	fn r64_multiplication(b: &mut Bencher) {
-		let mut ratios = Vec::new();
-		for i in 0_i16..1000 {
-			ratios.push(r64::from(i));
-		}
-		b.iter(|| {
-			ratios.iter().fold(r64(0), |a, &b| a * b)
-		})
-	}
 }
+*/

@@ -727,7 +727,7 @@ impl Rem for r32 {
 		((div - div.floor()) * other).set_sign(self.is_negative())
 	}
 }
-
+/*
 #[cfg(test)]
 mod tests {
 	extern crate test;
@@ -967,48 +967,5 @@ mod tests {
 		assert_eq!(format!("{}", NAN), "NaN");
 		assert_eq!(format!("{}", r32::from_parts(true, 3, 2)), "-3/2");
 	}
-	
-	#[bench]
-	fn f32_addition(b: &mut Bencher) {
-		let mut floats = Vec::new();
-		for i in 0..1000 {
-			floats.push(i as f32);
-		}
-		b.iter(|| {
-			floats.iter().fold(0.0, |a, b| a + *b)
-		})
-	}
-	
-	#[bench]
-	fn r32_addition(b: &mut Bencher) {
-		let mut ratios = Vec::new();
-		for i in 0_i16..1000 {
-			ratios.push(r32::from(i));
-		}
-		b.iter(|| {
-			ratios.iter().fold(r32(0), |a, b| a + *b)
-		})
-	}
-	
-	#[bench]
-	fn f32_multiplication(b: &mut Bencher) {
-		let mut floats = Vec::new();
-		for i in 0_i16..1000 {
-			floats.push(i as f32);
-		}
-		b.iter(|| {
-			floats.iter().fold(0.0, |a, &b| a * b)
-		})
-	}
-	
-	#[bench]
-	fn r32_multiplication(b: &mut Bencher) {
-		let mut ratios = Vec::new();
-		for i in 0_i16..1000 {
-			ratios.push(r32::from(i));
-		}
-		b.iter(|| {
-			ratios.iter().fold(r32(0), |a, &b| a * b)
-		})
-	}
 }
+*/
