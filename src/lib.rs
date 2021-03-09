@@ -1,18 +1,29 @@
 /*!
 This library provides the floating bar type, which allows for efficient
 representation of rational numbers without loss of precision. It is based on
-[this blog post](http://www.iquilezles.org/www/articles/floatingbar/floatingbar.htm).
+[Inigo Quilez's blog post exploring the concept](http://www.iquilezles.org/www/articles/floatingbar/floatingbar.htm).
+
+## Examples
+
+```rust
+use floating_point::r32;
+
+let done = 42;
+let total = 100;
+let progress = r32::new(done, total);
+println!("{}", progress);
+```
 
 ## Structure
 
 The floating bar types follow a general structure:
 * the **sign bit**
-* the denominator **size field** (always log_2 of the type's total size)
+* the denominator **size field** (always log<sub>2</sub> of the type's total size)
 * the **fraction field** (uses all the remaining bits)
 
 More concretely, they are represented like this:
 
-```ignore
+```
 s = sign, d = denominator size, f = fraction field
 
 r32: sdddddffffffffffffffffffffffffff
@@ -71,29 +82,32 @@ pub use r64_t::r64;
 /// trailing whitespace in the string e.g. when it is obtained from the standard
 /// input. Using the `str.trim()` method ensures that no whitespace remains
 /// before parsing.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParseRatioErr {
-    kind: RatioErrKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RatioErrKind {
+pub enum ParseRatioErr {
+	/// Value being parsed is empty.
     Empty,
+    
+    /// Contains an invalid digit in its context.
     Invalid,
+    
+    /// Rational is too large to store in fraction field.
     Overflow,
+    
+    /// Error when parsing underlying integer.
     Int(ParseIntError),
 }
 
 impl fmt::Display for ParseRatioErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.kind {
-            RatioErrKind::Empty =>
+        match self {
+            ParseRatioErr::Empty =>
             	f.write_str("cannot parse rational from empty string"),
-            RatioErrKind::Invalid =>
+            ParseRatioErr::Invalid =>
             	f.write_str("invalid rational literal"),
-            RatioErrKind::Overflow =>
+            ParseRatioErr::Overflow =>
             	f.write_str("number too large to fit in target type"),
-            RatioErrKind::Int(pie) =>
+            ParseRatioErr::Int(pie) =>
             	pie.fmt(f),
         }
     }
@@ -101,8 +115,8 @@ impl fmt::Display for ParseRatioErr {
 
 impl error::Error for ParseRatioErr {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match &self.kind {
-            RatioErrKind::Int(pie) => Some(pie),
+        match self {
+            ParseRatioErr::Int(pie) => Some(pie),
             _ => None
         }
     }
@@ -110,6 +124,6 @@ impl error::Error for ParseRatioErr {
 
 impl From<ParseIntError> for ParseRatioErr {
     fn from(pie: ParseIntError) -> ParseRatioErr {
-        ParseRatioErr { kind: RatioErrKind::Int(pie) }
+        ParseRatioErr::Int(pie)
     }
 }

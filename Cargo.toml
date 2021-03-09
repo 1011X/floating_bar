@@ -1,6 +1,6 @@
 [package]
 name = "floating_bar"
-version = "0.2.4"
+version = "0.3.0"
 authors = ["1011X <1011XXXXX@gmail.com>"]
 edition = "2018"
 description = "Representing rational numbers using the floating-bar number type."

@@ -9,7 +9,7 @@ use std::str::FromStr;
 use gcd::Gcd;
 use integer_sqrt::IntegerSquareRoot;
 
-use super::{ParseRatioErr, RatioErrKind};
+use super::ParseRatioErr;
 
 /// The 32-bit floating bar type.
 #[allow(non_camel_case_types)]
@@ -22,12 +22,12 @@ const SIGN_BIT: u32 = 0x8000_0000;
 const SIZE_FIELD: u32 = SIGN_BIT - 1 << FRACTION_SIZE + 1 >> 1;
 const FRACTION_FIELD: u32 = (1 << FRACTION_SIZE) - 1;
 
-pub const NAN: r32 = r32(SIZE_FIELD);
-pub const MAX: r32 = r32(FRACTION_FIELD);
-pub const MIN: r32 = r32(SIGN_BIT | FRACTION_FIELD);
-pub const MIN_POSITIVE: r32 = r32(FRACTION_SIZE << FRACTION_SIZE | FRACTION_FIELD);
-
 impl r32 {
+	pub const NAN: r32 = r32(SIZE_FIELD);
+	pub const MAX: r32 = r32(FRACTION_FIELD);
+	pub const MIN: r32 = r32(SIGN_BIT | FRACTION_FIELD);
+	pub const MIN_POSITIVE: r32 = r32(FRACTION_SIZE << FRACTION_SIZE | FRACTION_FIELD);
+
 	#[inline]
 	pub fn from_parts(sign: bool, numer: u32, denom: u32) -> r32 {
 		let denom_size = 32 - denom.leading_zeros() - 1;
@@ -177,41 +177,6 @@ impl r32 {
 		}
 	}
 	
-	/// Raises a number to an integer power.
-	// TODO: check that the new values fit in the type.
-	pub fn checked_pow(self, p: i32) -> Option<r32> {
-		let num = self.numer().checked_pow(p.abs() as u32);
-		let den = self.denom().checked_pow(p.abs() as u32);
-
-		match (num, den) {
-			(Some(num), Some(den)) => Some(
-				// power is positive
-				if p >= 0 {
-					r32::from_parts(self.is_negative(), num, den)
-				} else {
-					// power is negative; switch numbers around
-					r32::from_parts(self.is_negative(), den, num)
-				}
-			),
-			_ => None
-		}
-	}
-	
-	/// Takes the *checked* square root of a number.
-	/// 
-	/// If `self` is positive and both the numerator and denominator are perfect
-	/// squares, this returns their square root. Otherwise, returns `None`.
-	pub fn checked_sqrt(self) -> Option<r32> {
-		let nsqrt = self.numer().integer_sqrt();
-		let dsqrt = self.denom().integer_sqrt();
-
-		if self.numer() == nsqrt * nsqrt && self.denom() == dsqrt * dsqrt {
-			Some(r32::from_parts(self.is_negative(), nsqrt, dsqrt))
-		} else {
-			None
-		}
-	}
-	
 	/// Takes the square root of a number.
 	/// 
 	/// If `self` is positive, it approximates its square root by calculating
@@ -290,7 +255,7 @@ impl r32 {
 	pub fn max(self, other: r32) -> r32 {
 		match (self.is_nan(), other.is_nan()) {
 			// this clobbers any "payload" bits being used.
-			(true, true)   => NAN,
+			(true, true)   => r32::NAN,
 			(true, false)  => self,
 			(false, true)  => other,
 			(false, false) => match self.partial_cmp(&other).unwrap() {
@@ -307,7 +272,7 @@ impl r32 {
 	pub fn min(self, other: r32) -> r32 {
 		match (self.is_nan(), other.is_nan()) {
 			// this clobbers any "payload" bits being used.
-			(true, true)   => NAN,
+			(true, true)   => r32::NAN,
 			(true, false)  => self,
 			(false, true)  => other,
 			(false, false) => match self.partial_cmp(&other).unwrap() {
@@ -339,46 +304,132 @@ impl r32 {
 		let n = self.numer();
 		let d = self.denom();
 		
-		// cancel out common factors
+		// cancel out common factors by dividing numerator and denominator by
+		// their greatest common divisor.
 		let gcd = n.gcd(d);
 		self.set_fraction(n / gcd, d / gcd)
 	}
 	
+	fn get_frac_size(n: u64, d: u64) -> u32 {
+		let dsize = 64 - d.leading_zeros() - 1;
+		let nsize =
+			if cfg!(feature = "denormals") && dsize == FRACTION_SIZE && n == 1 { 0 }
+			else { 64 - n.leading_zeros() };
+		
+		nsize + dsize
+	}
+	
 	// BEGIN related integer stuff
 	
-	/// Checked integer addition. Computes `self + rhs`, returning `None` if
+	/// Checked rational addition. Computes `self + rhs`, returning `None` if
 	/// overflow occurred.
-	#[doc(hidden)]
 	pub fn checked_add(self, rhs: r32) -> Option<r32> {
-		unimplemented!()
+		// self = a/b, other = c/d
+		
+		let selfsign = (self.signum().0 as i32).signum() as i64;
+		let othersign = (rhs.signum().0 as i32).signum() as i64;
+		
+		// TODO prove this won't panic/can't overflow.
+		// num = ad + bc
+		let num =
+			(self.numer() as i64 * selfsign) * rhs.denom() as i64
+			+ self.denom() as i64 * (rhs.numer() as i64 * othersign);
+		// den = bd
+		let mut den = self.denom() as u64 * rhs.denom() as u64;
+		let s = num.is_negative();
+		let mut num = num.abs() as u64;
+		
+		let mut size = r32::get_frac_size(num, den);
+		
+		if size > FRACTION_SIZE {
+			let gcd = num.gcd(den);
+			num /= gcd;
+			den /= gcd;
+			size = r32::get_frac_size(num, den);
+		}
+		
+		if size <= FRACTION_SIZE {
+			Some(r32::from_parts(s, num as u32, den as u32))
+		} else {
+			None
+		}
 	}
 	
-	/// Checked integer subtraction. Computes `self - rhs`, returning `None` if
+	/// Checked rational subtraction. Computes `self - rhs`, returning `None` if
 	/// overflow occurred.
-	#[doc(hidden)]
 	pub fn checked_sub(self, rhs: r32) -> Option<r32> {
-		unimplemented!()
+		self.checked_add(-rhs)
 	}
 	
-	/// Checked integer multiplication. Computes `self * rhs`, returning `None`
+	/// Checked rational multiplication. Computes `self * rhs`, returning `None`
 	/// if overflow occurred.
-	#[doc(hidden)]
 	pub fn checked_mul(self, rhs: r32) -> Option<r32> {
-		unimplemented!()
+		let s = self.is_sign_negative() != rhs.is_sign_negative();
+		let mut n = self.numer() as u64 * rhs.numer() as u64;
+		let mut d = self.denom() as u64 * rhs.denom() as u64;
+		
+		let mut size = r32::get_frac_size(n, d);
+		
+		if size > FRACTION_SIZE {
+			let gcd = n.gcd(d);
+			n /= gcd;
+			d /= gcd;
+			size = r32::get_frac_size(n, d);
+		}
+		
+		if size <= FRACTION_SIZE {
+			Some(r32::from_parts(s, n as u32, d as u32))
+		} else {
+			None
+		}
 	}
 	
-	/// Checked integer division. Computes `self / rhs`, returning `None` if
+	/// Checked rational division. Computes `self / rhs`, returning `None` if
 	/// `rhs == 0` or the division results in overflow.
-	#[doc(hidden)]
 	pub fn checked_div(self, rhs: r32) -> Option<r32> {
-		unimplemented!()
+		self.checked_mul(rhs.recip())
 	}
 	
-	/// Checked integer remainder. Computes `self % rhs`, returning `None` if
+	/// Checked rational remainder. Computes `self % rhs`, returning `None` if
 	/// `rhs == 0` or the division results in overflow.
 	#[doc(hidden)]
 	pub fn checked_rem(self, rhs: r32) -> Option<r32> {
 		unimplemented!()
+	}
+	
+	/// Takes the *checked* square root of a number.
+	/// 
+	/// If `self` is positive and both the numerator and denominator are perfect
+	/// squares, this returns their square root. Otherwise, returns `None`.
+	pub fn checked_sqrt(self) -> Option<r32> {
+		let nsqrt = self.numer().integer_sqrt();
+		let dsqrt = self.denom().integer_sqrt();
+
+		if self.numer() == nsqrt * nsqrt && self.denom() == dsqrt * dsqrt {
+			Some(r32::from_parts(self.is_negative(), nsqrt, dsqrt))
+		} else {
+			None
+		}
+	}
+	
+	/// Raises a number to an integer power.
+	// TODO: check that the new values fit in the type.
+	pub fn checked_pow(self, p: i32) -> Option<r32> {
+		let num = self.numer().checked_pow(p.abs() as u32);
+		let den = self.denom().checked_pow(p.abs() as u32);
+
+		match (num, den) {
+			(Some(num), Some(den)) => Some(
+				// power is positive
+				if p >= 0 {
+					r32::from_parts(self.is_negative(), num, den)
+				} else {
+					// power is negative; switch numbers around
+					r32::from_parts(self.is_negative(), den, num)
+				}
+			),
+			_ => None
+		}
 	}
 }
 
@@ -439,25 +490,25 @@ impl FromStr for r32 {
 	/// `src`.
 	fn from_str(src: &str) -> Result<Self, Self::Err> {
 		if src.is_empty() {
-			return Err(ParseRatioErr { kind: RatioErrKind::Empty });
+			return Err(ParseRatioErr::Empty);
 		}
 		
 		if src == "NaN" {
-			return Ok(NAN);
+			return Ok(r32::NAN);
 		}
 		
 		// if bar exists, parse as fraction
 		if let Some(pos) = src.find('/') {
 			// bar is at the end. invalid.
 			if pos == src.len() - 1 {
-				return Err(ParseRatioErr { kind: RatioErrKind::Invalid });
+				return Err(ParseRatioErr::Invalid);
 			}
 			
 			let numerator: i32 = src[0..pos].parse()?;
 			let denominator: u32 = src[pos+1..].parse()?;
 			
 			if denominator == 0 {
-				return Err(ParseRatioErr { kind: RatioErrKind::Invalid });
+				return Err(ParseRatioErr::Invalid);
 			}
 			
 			let sign = numerator < 0;
@@ -474,20 +525,19 @@ impl FromStr for r32 {
 			let frac_size = denom_size + (32 - numerator.leading_zeros());
 			
 			if frac_size > FRACTION_SIZE {
-				Err(ParseRatioErr { kind: RatioErrKind::Overflow })
+				return Err(ParseRatioErr::Overflow);
 			}
-			else {
-				Ok(r32::from_parts(sign, numerator.abs() as u32, denominator))
-			}
+			
+			Ok(r32::from_parts(sign, numerator.abs() as u32, denominator))
 		} else {
 			// otherwise, parse as integer.
 			let numerator: i32 = src.parse()?;
 			let mag = numerator.checked_abs()
-				.ok_or(ParseRatioErr { kind: RatioErrKind::Overflow })?;
+				.ok_or(ParseRatioErr::Overflow)?;
 			let frac_size = 32 - mag.leading_zeros();
 			
 			if frac_size > FRACTION_SIZE {
-				return Err(ParseRatioErr { kind: RatioErrKind::Overflow });
+				return Err(ParseRatioErr::Overflow);
 			}
 			
 			Ok(r32::from_parts(numerator < 0, mag as u32, 1))
@@ -531,7 +581,7 @@ impl From<f32> for r32 {
 		let is_neg = f < 0.0;
 		
 		if f.is_nan() || f.is_infinite() {
-			return NAN;
+			return r32::NAN;
 		}
 		
 		//if is_lorge { f = f.recip(); }
@@ -639,31 +689,7 @@ impl Mul for r32 {
 	type Output = r32;
 	
 	fn mul(self, other: r32) -> r32 {
-		let s = self.is_sign_negative() != other.is_sign_negative();
-		let mut n = self.numer() as u64 * other.numer() as u64;
-		let mut d = self.denom() as u64 * other.denom() as u64;
-		
-		let mut size = (64 - d.leading_zeros() - 1) + (64 - n.leading_zeros());
-		
-		if cfg!(feature = "denormals") {
-			if size >= FRACTION_SIZE {
-				let gcd = n.gcd(d);
-				n /= gcd;
-				d /= gcd;
-				size = (64 - d.leading_zeros() - 1) + (64 - n.leading_zeros());
-			}
-			debug_assert!(size < FRACTION_SIZE, "attempt to multiply with overflow");
-		} else {
-			if size > FRACTION_SIZE {
-				let gcd = n.gcd(d);
-				n /= gcd;
-				d /= gcd;
-				size = (64 - d.leading_zeros() - 1) + (64 - n.leading_zeros());
-			}
-			debug_assert!(size <= FRACTION_SIZE, "attempt to multiply with overflow");
-		}
-		
-		r32::from_parts(s, n as u32, d as u32)
+		self.checked_mul(other).expect("attempt to multiply with overflow")
 	}
 }
 
@@ -679,33 +705,7 @@ impl Add for r32 {
 	type Output = r32;
 	
 	fn add(self, other: r32) -> r32 {
-		// self = a/b, other = c/d
-		
-		let selfsign = (self.signum().0 as i32).signum() as i64;
-		let othersign = (other.signum().0 as i32).signum() as i64;
-		
-		// TODO prove this won't panic/can't overflow.
-		// num = ad + bc
-		let num =
-			(self.numer() as i64 * selfsign) * other.denom() as i64
-			+ self.denom() as i64 * (other.numer() as i64 * othersign);
-		// den = bd
-		let mut den = self.denom() as u64 * other.denom() as u64;
-		let s = num.is_negative();
-		let mut num = num.abs() as u64;
-		
-		let mut size = (64 - den.leading_zeros() - 1) + (64 - num.leading_zeros());
-		
-		if size > FRACTION_SIZE {
-			let gcd = num.gcd(den);
-			num /= gcd;
-			den /= gcd;
-			size = (64 - den.leading_zeros() - 1) + (64 - num.leading_zeros());
-		}
-		
-		debug_assert!(size <= FRACTION_SIZE, "attempt to add with overflow");
-		
-		r32::from_parts(s, num as u32, den as u32)
+		self.checked_add(other).expect("attempt to add with overflow")
 	}
 }
 
@@ -713,7 +713,7 @@ impl Sub for r32 {
 	type Output = r32;
 
 	fn sub(self, other: r32) -> r32 {
-		self + -other
+		self.checked_sub(other).expect("attempt to subtract with overflow")
 	}
 }
 
