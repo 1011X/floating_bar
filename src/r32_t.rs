@@ -23,13 +23,21 @@ const SIZE_FIELD: u32 = SIGN_BIT - 1 << FRACTION_SIZE + 1 >> 1;
 const FRACTION_FIELD: u32 = (1 << FRACTION_SIZE) - 1;
 
 impl r32 {
-	pub const NAN: r32 = r32(SIZE_FIELD);
+	/// The largest value that can be represented by this rational type.
 	pub const MAX: r32 = r32(FRACTION_FIELD);
+	
+	/// The smallest value that can be represented by this rational type.
 	pub const MIN: r32 = r32(SIGN_BIT | FRACTION_FIELD);
+	
+	/// The smallest positive normal value that can be represented by this
+	/// rational type.
 	pub const MIN_POSITIVE: r32 = r32(FRACTION_SIZE << FRACTION_SIZE | FRACTION_FIELD);
+	
+	/// Not a Number (NaN).
+	pub const NAN: r32 = r32(SIZE_FIELD);
 
 	#[inline]
-	pub fn from_parts(sign: bool, numer: u32, denom: u32) -> r32 {
+	fn from_parts(sign: bool, numer: u32, denom: u32) -> r32 {
 		let denom_size = 32 - denom.leading_zeros() - 1;
 		let denom_mask = (1 << denom_size) - 1;
 		let numer_mask = denom_mask ^ FRACTION_FIELD;
