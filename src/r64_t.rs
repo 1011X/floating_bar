@@ -48,6 +48,8 @@ impl r64 {
 		)
 	}
 	
+	/// Creates a rational number from a signed numerator and an unsigned
+	/// denominator.
 	#[inline]
 	pub fn new(numer: i64, denom: u64) -> r64 {
 		r64::from_parts(numer.is_negative(), numer.abs() as u64, denom)
@@ -187,14 +189,12 @@ impl r64 {
 	
 	/// Takes the square root of a number.
 	/// 
-	/// If `self` is positive, it approximates its square root by calculating
-	/// a repeated fraction for a fixed number of steps.
-	/// 
 	/// **Warning**: This method can give a number that overflows easily, so
 	/// use it with caution, and discard it as soon as you're done with it.
 	#[doc(hidden)]
 	pub fn sqrt(self) -> r64 {
-		// TODO: maybe there's a better way?
+		// TODO: If `self` is positive, this should approximate its square root
+		// by calculating a repeated fraction for a fixed number of steps.
 		let f: f64 = self.into();
 		r64::from(f.sqrt())
 	}
@@ -258,7 +258,7 @@ impl r64 {
 	pub fn max(self, other: r64) -> r64 {
 		match (self.is_nan(), other.is_nan()) {
 			// this clobbers any "payload" bits being used.
-			(true, true) => NAN,
+			(true, true) => r64::NAN,
 			(true, false) => self,
 			(false, true) => other,
 			(false, false) => match self.partial_cmp(&other).unwrap() {
@@ -274,7 +274,7 @@ impl r64 {
 	pub fn min(self, other: r64) -> r64 {
 		match (self.is_nan(), other.is_nan()) {
 			// this clobbers any "payload" bits being used.
-			(true, true) => NAN,
+			(true, true) => r64::NAN,
 			(true, false) => self,
 			(false, true) => other,
 			(false, false) => match self.partial_cmp(&other).unwrap() {
@@ -283,14 +283,6 @@ impl r64 {
 			}
 		}
 	}
-	
-	/// Raw transmutation to `u64`.
-	#[inline]
-	pub fn to_bits(self) -> u64 { self.0 }
-	
-	/// Raw transmutation from `u64`.
-	#[inline]
-	pub fn from_bits(bits: u64) -> r64 { r64(bits) }
 	
 	/// Cancels out common factors between the numerator and the denominator.
 	pub fn normalize(self) -> r64 {
@@ -322,23 +314,9 @@ impl r64 {
 	
 	// BEGIN related integer stuff
 	
-	/// Takes the reciprocal (inverse) of a number, `1/x`.
-	/// 
-	/// # Panics
-	/// 
-	/// Panics when trying to set a numerator of zero as denominator.
-	#[inline]
-	pub fn checked_recip(self) -> Option<r64> {
-		if self.numer() == 0 {
-			None
-		} else {
-			Some(self.set_fraction(self.denom(), self.numer()))
-		}
-		//assert!(self.denom_size() < FRACTION_SIZE, "subnormal overflow");
-	}
-	
 	/// Checked rational addition. Computes `self + rhs`, returning `None` if
 	/// overflow occurred.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_add(self, rhs: r64) -> Option<r64> {
 		// self = a/b, other = c/d
 		
@@ -373,14 +351,16 @@ impl r64 {
 	
 	/// Checked rational subtraction. Computes `self - rhs`, returning `None` if
 	/// overflow occurred.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
+	#[inline]
 	pub fn checked_sub(self, rhs: r64) -> Option<r64> {
 		self.checked_add(-rhs)
 	}
 	
 	/// Checked rational multiplication. Computes `self * rhs`, returning `None`
 	/// if overflow occurred.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_mul(self, rhs: r64) -> Option<r64> {
-		let s = self.is_sign_negative() != rhs.is_sign_negative();
 		let mut n = self.numer() as u128 * rhs.numer() as u128;
 		let mut d = self.denom() as u128 * rhs.denom() as u128;
 		
@@ -394,6 +374,7 @@ impl r64 {
 		}
 		
 		if size <= FRACTION_SIZE {
+			let s = self.is_sign_negative() != rhs.is_sign_negative();
 			Some(r64::from_parts(s, n as u64, d as u64))
 		} else {
 			None
@@ -402,15 +383,31 @@ impl r64 {
 	
 	/// Checked rational division. Computes `self / rhs`, returning `None` if
 	/// `rhs == 0` or the division results in overflow.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
+	#[inline]
 	pub fn checked_div(self, rhs: r64) -> Option<r64> {
-		self.checked_mul(rhs.recip())
+		self.checked_mul(rhs.checked_recip()?)
 	}
 	
 	/// Checked rational remainder. Computes `self % rhs`, returning `None` if
 	/// `rhs == 0` or the division results in overflow.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	#[doc(hidden)]
 	pub fn checked_rem(self, rhs: r64) -> Option<r64> {
-		unimplemented!()
+		todo!()
+	}
+	
+	/// Takes the reciprocal (inverse) of a number, `1/x`. Returns `None` if the
+	/// numerator is zero.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
+	#[inline]
+	pub fn checked_recip(self) -> Option<r64> {
+		if self.numer() == 0 {
+			None
+		} else {
+			Some(self.set_fraction(self.denom(), self.numer()))
+		}
+		//assert!(self.denom_size() < FRACTION_SIZE, "subnormal overflow");
 	}
 	
 	/// Takes the *checked* square root of a number.
@@ -418,11 +415,15 @@ impl r64 {
 	/// If `self` is positive and both the numerator and denominator are perfect
 	/// squares, this returns their square root. Otherwise, returns `None`.
 	pub fn checked_sqrt(self) -> Option<r64> {
+		if self.is_negative() {
+			return None;
+		}
+		
 		let nsqrt = self.numer().integer_sqrt();
 		let dsqrt = self.denom().integer_sqrt();
 
 		if self.numer() == nsqrt * nsqrt && self.denom() == dsqrt * dsqrt {
-			Some(self.set_fraction(nsqrt, dsqrt))
+			Some(r64::new(nsqrt as i64, dsqrt))
 		} else {
 			None
 		}
@@ -447,6 +448,14 @@ impl r64 {
 			_ => None
 		}
 	}
+	
+	/// Raw transmutation to `u64`.
+	#[inline]
+	pub fn to_bits(self) -> u64 { self.0 }
+	
+	/// Raw transmutation from `u64`.
+	#[inline]
+	pub fn from_bits(bits: u64) -> r64 { r64(bits) }
 }
 
 impl fmt::Display for r64 {
@@ -461,7 +470,7 @@ impl fmt::Display for r64 {
 			f.write_str("-")?;
 		}
 		
-		write!(f, "{}", norm.numer())?;
+		norm.numer().fmt(f)?;
 		
 		if norm.denom_size() > 0 {
 			write!(f, "/{}", norm.denom())?;
@@ -510,7 +519,7 @@ impl FromStr for r64 {
 		}
 		
 		if src == "NaN" {
-			return Ok(NAN);
+			return Ok(r64::NAN);
 		}
 		
 		// if bar exists, parse as fraction
@@ -527,13 +536,14 @@ impl FromStr for r64 {
 				return Err(ParseRatioErr::Invalid);
 			}
 			
-			let sign = numerator < 0;
 			let denom_size = 64 - denominator.leading_zeros() - 1;
 			
 			// if subnormal, return early
 			#[cfg(feature = "denormals")]
 			if numerator.abs() == 1 && denom_size as u64 == FRACTION_SIZE {
+				let sign = numerator < 0;
 				let denominator = denominator & FRACTION_FIELD;
+				
 				return Ok(r64::from_parts(sign, 1, denominator));
 			}
 			
@@ -544,7 +554,7 @@ impl FromStr for r64 {
 				return Err(ParseRatioErr::Overflow);
 			}
 			
-			Ok(r64::from_parts(sign, numerator.abs() as u64, denominator))
+			Ok(r64::new(numerator, denominator))
 		}
 		// otherwise, parse as integer.
 		else {
@@ -622,7 +632,7 @@ impl From<f64> for r64 {
 		let is_neg = f < 0.0;
 		
 		if f.is_nan() || f.is_infinite() {
-			return NAN;
+			return r64::NAN;
 		}
 		
 		if is_lorge { f = f.recip(); }
@@ -737,7 +747,7 @@ impl Div for r64 {
 	type Output = r64;
 
 	fn div(self, other: r64) -> r64 {
-		self * other.recip()
+		self.checked_div(other).expect("attempt to divide with overflow")
 	}
 }
 
@@ -768,9 +778,9 @@ impl Rem for r64 {
 
 #[cfg(test)]
 mod tests {
+	#[cfg(feature = "bench")]
 	extern crate test;
 	
-	use test::Bencher;
 	use super::*;
 	
 	#[test]
@@ -985,13 +995,13 @@ mod tests {
 	#[test]
 	fn debug() {
 		assert_eq!(format!("{:?}", r64::from_parts(true, 0, 1)), "-0/1");
-		assert_eq!(format!("{:?}", NAN), "NaN");
+		assert_eq!(format!("{:?}", r64::NAN), "NaN");
 	}
 	
 	#[test]
 	fn display() {
 		assert_eq!(format!("{}", r64::from_parts(false, 0, 1)), "0");
-		assert_eq!(format!("{}", NAN), "NaN");
+		assert_eq!(format!("{}", r64::NAN), "NaN");
 		assert_eq!(format!("{}", r64::from_parts(true, 3, 2)), "-3/2");
 	}
 }

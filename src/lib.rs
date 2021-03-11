@@ -6,7 +6,7 @@ representation of rational numbers without loss of precision. It is based on
 ## Examples
 
 ```rust
-use floating_point::r32;
+use floating_bar::r32;
 
 let done = 42;
 let total = 100;
@@ -23,7 +23,7 @@ The floating bar types follow a general structure:
 
 More concretely, they are represented like this:
 
-```
+```txt
 s = sign, d = denominator size, f = fraction field
 
 r32: sdddddffffffffffffffffffffffffff

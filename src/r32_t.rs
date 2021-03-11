@@ -49,16 +49,28 @@ impl r32 {
 	}
 	
 	#[inline]
-	pub fn new(numer: i32, denom: u32) -> r32 {
-		r32::from_parts(numer.is_negative(), numer.abs() as u32, denom)
-	}
-	
-	#[inline]
 	fn denom_size(self) -> u32 {
 		(self.0 & SIZE_FIELD) >> FRACTION_SIZE
 	}
 	
-	/// Returns the numerator value for this rational number.
+	#[inline]
+	fn get_frac_size(n: u64, d: u64) -> u32 {
+		let dsize = 64 - d.leading_zeros() - 1;
+		let nsize =
+			if cfg!(feature = "denormals") && dsize == FRACTION_SIZE && n == 1 { 0 }
+			else { 64 - n.leading_zeros() };
+		
+		nsize + dsize
+	}
+	
+	/// Creates a rational number from a signed numerator and an unsigned
+	/// denominator.
+	#[inline]
+	pub fn new(numer: i32, denom: u32) -> r32 {
+		r32::from_parts(numer.is_negative(), numer.abs() as u32, denom)
+	}
+	
+	/// Returns the numerator of this rational number.
 	#[inline]
 	pub fn numer(self) -> u32 {
 		if cfg!(feature = "denormals") && self.denom_size() == FRACTION_SIZE {
@@ -101,6 +113,7 @@ impl r32 {
 	// BEGIN related float stuff
 	
 	/// Returns the largest integer less than or equal to a number.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	pub fn floor(self) -> r32 {
 		if self.is_sign_negative() {
 			// if self is a whole number,
@@ -115,6 +128,7 @@ impl r32 {
 	}
 	
 	/// Returns the smallest integer greater than or equal to a number.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	pub fn ceil(self) -> r32 {
 		if self.is_sign_negative() {
 			self.trunc()
@@ -130,6 +144,7 @@ impl r32 {
 	
 	/// Returns the nearest integer to a number. Round half-way cases away from
 	/// zero.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	pub fn round(self) -> r32 {
 		if self.is_sign_negative() {
 			(self - r32(1) / r32(2)).ceil()
@@ -139,12 +154,14 @@ impl r32 {
 	}
 	
 	/// Returns the integer part of a number.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	#[inline]
 	pub fn trunc(self) -> r32 {
 		self.set_fraction(self.numer() / self.denom(), 1)
 	}
 	
 	/// Returns the fractional part of a number.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	#[inline]
 	pub fn fract(self) -> r32 {
 		let d = self.denom();
@@ -152,6 +169,7 @@ impl r32 {
 	}
 	
 	/// Computes the absolute value of `self`. Returns NaN if the number is NaN.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	#[inline]
 	pub fn abs(self) -> r32 {
 		r32(self.0 & !SIGN_BIT)
@@ -162,6 +180,7 @@ impl r32 {
 	/// * `1` if the number is positive
 	/// * `-1` if the number is negative
 	/// * `0` if the number is `+0`, `-0`, or `NaN`
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	pub fn signum(self) -> r32 {
 		if self.numer() == 0 || self.is_nan() {
 			r32(0)
@@ -171,7 +190,8 @@ impl r32 {
 	}
 	
 	/// Raises a number to an integer power.
-	// TODO: check that the new values fit in the type. Is the 
+	// TODO: check that the new values fit in the type.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	pub fn pow(self, p: i32) -> r32 {
 		let num = self.numer().pow(p.abs() as u32);
 		let den = self.denom().pow(p.abs() as u32);
@@ -187,14 +207,12 @@ impl r32 {
 	
 	/// Takes the square root of a number.
 	/// 
-	/// If `self` is positive, it approximates its square root by calculating
-	/// a repeated fraction for a fixed number of steps.
-	/// 
-	/// **Warning**: This method can give a number that overflows easily, so
-	/// use it with caution, and discard it as soon as you're done with it.
-	#[doc(hidden)]
+	/// **Warning**: This method can give a value that overflows easily. Use
+	/// with caution, and discard as soon as you're done with it.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	pub fn sqrt(self) -> r32 {
-		// TODO: maybe there's a better way?
+		// TODO: If `self` is positive, this should approximate its square root
+		// by calculating a repeated fraction for a fixed number of steps.
 		let f: f32 = self.into();
 		r32::from(f.sqrt())
 	}
@@ -210,6 +228,7 @@ impl r32 {
 		unimplemented!()
 	}
 	*/
+	
 	/// Returns `true` if this value is `NaN` and `false` otherwise.
 	#[inline]
 	#[cfg(feature = "denormals")]
@@ -250,16 +269,16 @@ impl r32 {
 	/// # Panics
 	/// 
 	/// Panics when trying to set a numerator of zero as denominator.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	#[inline]
 	pub fn recip(self) -> r32 {
-		assert!(self.numer() != 0, "attempt to divide by zero");
-		assert!(self.denom_size() < FRACTION_SIZE, "denormal overflow");
-		self.set_fraction(self.denom(), self.numer())
+		self.checked_recip().expect("attempt to divide by zero")
 	}
 	
 	/// Returns the maximum of the two numbers.
 	/// 
 	/// If one of the arguments is `NaN`, then the other argument is returned.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	pub fn max(self, other: r32) -> r32 {
 		match (self.is_nan(), other.is_nan()) {
 			// this clobbers any "payload" bits being used.
@@ -277,6 +296,7 @@ impl r32 {
 	/// Returns the minimum of the two numbers.
 	/// 
 	/// If one of the arguments is `NaN`, then the other argument is returned.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	pub fn min(self, other: r32) -> r32 {
 		match (self.is_nan(), other.is_nan()) {
 			// this clobbers any "payload" bits being used.
@@ -291,15 +311,8 @@ impl r32 {
 		}
 	}
 	
-	/// Raw transmutation to `u32`.
-	#[inline]
-	pub fn to_bits(self) -> u32 { self.0 }
-	
-	/// Raw transmutation from `u32`.
-	#[inline]
-	pub fn from_bits(bits: u32) -> r32 { r32(bits) }
-	
 	/// Cancels out common factors between the numerator and the denominator.
+	#[must_use = "method returns a new number and does not mutate the original value"]
 	pub fn normalize(self) -> r32 {
 		if self.is_nan() {
 			return self;
@@ -318,19 +331,11 @@ impl r32 {
 		self.set_fraction(n / gcd, d / gcd)
 	}
 	
-	fn get_frac_size(n: u64, d: u64) -> u32 {
-		let dsize = 64 - d.leading_zeros() - 1;
-		let nsize =
-			if cfg!(feature = "denormals") && dsize == FRACTION_SIZE && n == 1 { 0 }
-			else { 64 - n.leading_zeros() };
-		
-		nsize + dsize
-	}
-	
 	// BEGIN related integer stuff
 	
 	/// Checked rational addition. Computes `self + rhs`, returning `None` if
 	/// overflow occurred.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_add(self, rhs: r32) -> Option<r32> {
 		// self = a/b, other = c/d
 		
@@ -365,12 +370,14 @@ impl r32 {
 	
 	/// Checked rational subtraction. Computes `self - rhs`, returning `None` if
 	/// overflow occurred.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_sub(self, rhs: r32) -> Option<r32> {
 		self.checked_add(-rhs)
 	}
 	
 	/// Checked rational multiplication. Computes `self * rhs`, returning `None`
 	/// if overflow occurred.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_mul(self, rhs: r32) -> Option<r32> {
 		let s = self.is_sign_negative() != rhs.is_sign_negative();
 		let mut n = self.numer() as u64 * rhs.numer() as u64;
@@ -394,21 +401,37 @@ impl r32 {
 	
 	/// Checked rational division. Computes `self / rhs`, returning `None` if
 	/// `rhs == 0` or the division results in overflow.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
+	#[inline]
 	pub fn checked_div(self, rhs: r32) -> Option<r32> {
-		self.checked_mul(rhs.recip())
+		self.checked_mul(rhs.checked_recip()?)
 	}
 	
 	/// Checked rational remainder. Computes `self % rhs`, returning `None` if
 	/// `rhs == 0` or the division results in overflow.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	#[doc(hidden)]
 	pub fn checked_rem(self, rhs: r32) -> Option<r32> {
-		unimplemented!()
+		todo!()
+	}
+	
+	/// Checked rational reciprocal. Computes `1 / self`, returning `None` if
+	/// `self.numer() == 0`.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
+	pub fn checked_recip(self) -> Option<r32> {
+		if self.numer() == 0 {
+			None
+		} else {
+			Some(self.set_fraction(self.denom(), self.numer()))
+		}
+		//assert!(self.denom_size() < FRACTION_SIZE, "subnormal overflow");
 	}
 	
 	/// Takes the *checked* square root of a number.
 	/// 
 	/// If `self` is positive and both the numerator and denominator are perfect
 	/// squares, this returns their square root. Otherwise, returns `None`.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_sqrt(self) -> Option<r32> {
 		let nsqrt = self.numer().integer_sqrt();
 		let dsqrt = self.denom().integer_sqrt();
@@ -422,6 +445,7 @@ impl r32 {
 	
 	/// Raises a number to an integer power.
 	// TODO: check that the new values fit in the type.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_pow(self, p: i32) -> Option<r32> {
 		let num = self.numer().checked_pow(p.abs() as u32);
 		let den = self.denom().checked_pow(p.abs() as u32);
@@ -439,6 +463,14 @@ impl r32 {
 			_ => None
 		}
 	}
+	
+	/// Raw transmutation to `u32`.
+	#[inline]
+	pub fn to_bits(self) -> u32 { self.0 }
+	
+	/// Raw transmutation from `u32`.
+	#[inline]
+	pub fn from_bits(bits: u32) -> r32 { r32(bits) }
 }
 
 impl fmt::Display for r32 {
@@ -453,7 +485,7 @@ impl fmt::Display for r32 {
 			f.write_str("-")?;
 		}
 		
-		write!(f, "{}", norm.numer())?;
+		norm.numer().fmt(f)?;
 		
 		if norm.denom_size() > 0 {
 			write!(f, "/{}", norm.denom())?;
@@ -519,27 +551,30 @@ impl FromStr for r32 {
 				return Err(ParseRatioErr::Invalid);
 			}
 			
-			let sign = numerator < 0;
 			let denom_size = 32 - denominator.leading_zeros() - 1;
 			
 			// if denormal, return early
 			#[cfg(feature = "denormals")]
 			if numerator.abs() == 1 && denom_size == FRACTION_SIZE {
+				let sign = numerator < 0;
 				let denominator = denominator & FRACTION_FIELD;
+				
 				return Ok(r32::from_parts(sign, 1, denominator));
 			}
 
 			// ensure both fragments fit in the fraction field
+			// TODO this uh, likely won't work if numerator is negative
 			let frac_size = denom_size + (32 - numerator.leading_zeros());
 			
 			if frac_size > FRACTION_SIZE {
 				return Err(ParseRatioErr::Overflow);
 			}
 			
-			Ok(r32::from_parts(sign, numerator.abs() as u32, denominator))
+			Ok(r32::new(numerator, denominator))
 		} else {
 			// otherwise, parse as integer.
 			let numerator: i32 = src.parse()?;
+			
 			let mag = numerator.checked_abs()
 				.ok_or(ParseRatioErr::Overflow)?;
 			let frac_size = 32 - mag.leading_zeros();
@@ -548,7 +583,7 @@ impl FromStr for r32 {
 				return Err(ParseRatioErr::Overflow);
 			}
 			
-			Ok(r32::from_parts(numerator < 0, mag as u32, 1))
+			Ok(r32::new(numerator, 1))
 		}
 	}
 }
@@ -705,7 +740,7 @@ impl Div for r32 {
 	type Output = r32;
 
 	fn div(self, other: r32) -> r32 {
-		self * other.recip()
+		self.checked_div(other).expect("attempt to divide with overflow")
 	}
 }
 
@@ -735,12 +770,12 @@ impl Rem for r32 {
 		((div - div.floor()) * other).set_sign(self.is_negative())
 	}
 }
-/*
+
 #[cfg(test)]
 mod tests {
+	#[cfg(feature = "bench")]
 	extern crate test;
 	
-	use test::Bencher;
 	use super::*;
 	
 	#[test]
@@ -966,14 +1001,13 @@ mod tests {
 	#[test]
 	fn debug() {
 		assert_eq!(format!("{:?}", r32::from_parts(true, 0, 1)), "-0/1");
-		assert_eq!(format!("{:?}", NAN), "NaN");
+		assert_eq!(format!("{:?}", r32::NAN), "NaN");
 	}
 	
 	#[test]
 	fn display() {
 		assert_eq!(format!("{}", r32::from_parts(false, 0, 1)), "0");
-		assert_eq!(format!("{}", NAN), "NaN");
+		assert_eq!(format!("{}", r32::NAN), "NaN");
 		assert_eq!(format!("{}", r32::from_parts(true, 3, 2)), "-3/2");
 	}
 }
-*/
