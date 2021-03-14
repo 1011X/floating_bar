@@ -74,28 +74,21 @@ mod r64_t;
 pub use r32_t::r32;
 pub use r64_t::r64;
 
-/// An error which can be returned when parsing a rational number.
-/// 
-/// # Potential causes
-/// 
-/// Among other causes, `ParseRatioErr` can be thrown because of leading or
-/// trailing whitespace in the string e.g. when it is obtained from the standard
-/// input. Using the `str.trim()` method ensures that no whitespace remains
-/// before parsing.
+/// An error which can be returned when parsing a ratio.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseRatioErr {
 	/// Value being parsed is empty.
     Empty,
     
-    /// Contains an invalid digit in its context.
-    Invalid,
-    
-    /// Rational is too large to store in fraction field.
+    /// Numbers are too large to store together in the fraction field.
     Overflow,
     
-    /// Error when parsing underlying integer.
-    Int(ParseIntError),
+    /// Error when parsing numerator.
+    Numer(ParseIntError),
+    
+    /// Error when parsing denominator.
+    Denom(ParseIntError),
 }
 
 impl fmt::Display for ParseRatioErr {
@@ -103,12 +96,15 @@ impl fmt::Display for ParseRatioErr {
         match self {
             ParseRatioErr::Empty =>
             	f.write_str("cannot parse rational from empty string"),
-            ParseRatioErr::Invalid =>
-            	f.write_str("invalid rational literal"),
+        	
             ParseRatioErr::Overflow =>
-            	f.write_str("number too large to fit in target type"),
-            ParseRatioErr::Int(pie) =>
-            	pie.fmt(f),
+            	f.write_str("numbers are too large to fit in fraction"),
+        	
+            ParseRatioErr::Numer(pie) =>
+            	write!(f, "numerator error: {}", pie),
+        	
+        	ParseRatioErr::Denom(pie) =>
+        		write!(f, "denominator error: {}", pie),
         }
     }
 }
@@ -116,14 +112,9 @@ impl fmt::Display for ParseRatioErr {
 impl error::Error for ParseRatioErr {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
-            ParseRatioErr::Int(pie) => Some(pie),
+            ParseRatioErr::Numer(pie) => Some(pie),
+            ParseRatioErr::Denom(pie) => Some(pie),
             _ => None
         }
-    }
-}
-
-impl From<ParseIntError> for ParseRatioErr {
-    fn from(pie: ParseIntError) -> ParseRatioErr {
-        ParseRatioErr::Int(pie)
     }
 }

@@ -1,17 +1,10 @@
 # Floating Bar
 
-Provides the **floating-bar** type, which allows for efficient representation of rational numbers without loss of precision. It is based on [this blog post](https://www.iquilezles.org/www/articles/floatingbar/floatingbar.htm).
+This library provides the floating bar type, which allows for efficient
+representation of rational numbers without loss of precision. It is based on
+[Inigo Quilez's blog post exploring the concept](http://www.iquilezles.org/www/articles/floatingbar/floatingbar.htm).
 
-For more information, refer to the [library documentation](https://docs.rs/floating_bar/0.3.0/floating_bar/).
-
-## Use
-
-To use this library, add the following to your `Cargo.toml`:
-
-```toml
-[dependencies]
-floating_bar = "0.3.0"
-```
+For more information, refer to the [library documentation](https://docs.rs/floating_bar/).
 
 ## Features
 

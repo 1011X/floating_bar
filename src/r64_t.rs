@@ -60,6 +60,16 @@ impl r64 {
 		(self.0 & SIZE_FIELD) >> FRACTION_SIZE
 	}
 	
+	#[inline]
+	fn get_frac_size(n: u128, d: u128) -> u64 {
+		let dsize = 128 - d.leading_zeros() - 1;
+		let nsize =
+			if cfg!(feature = "denormals") && dsize as u64 == FRACTION_SIZE && n == 1 { 0 }
+			else { 128 - n.leading_zeros() };
+		
+		(nsize + dsize) as u64
+	}
+	
 	/// Returns the numerator value for this rational number.
 	#[inline]
 	pub fn numer(self) -> u64 {
@@ -174,24 +184,14 @@ impl r64 {
 	
 	/// Raises a number to an integer power.
 	// TODO: check that the new values fit in the type.
-	pub fn pow(self, p: i32) -> r64 {
-		let num = self.numer().pow(p.abs() as u32);
-		let den = self.denom().pow(p.abs() as u32);
-
-		// power is positive
-		if p >= 0 {
-			self.set_fraction(num, den)
-		} else {
-			// power is negative; switch numbers around
-			self.set_fraction(den, num)
-		}
+	pub fn pow(self, exp: i32) -> r64 {
+		self.checked_pow(exp).expect("attempt to multiply with overflow")
 	}
 	
 	/// Takes the square root of a number.
 	/// 
 	/// **Warning**: This method can give a number that overflows easily, so
 	/// use it with caution, and discard it as soon as you're done with it.
-	#[doc(hidden)]
 	pub fn sqrt(self) -> r64 {
 		// TODO: If `self` is positive, this should approximate its square root
 		// by calculating a repeated fraction for a fixed number of steps.
@@ -247,9 +247,7 @@ impl r64 {
 	/// Panics when trying to set a numerator of zero as denominator.
 	#[inline]
 	pub fn recip(self) -> r64 {
-		assert!(self.numer() != 0, "attempt to divide by zero");
-		assert!(self.denom_size() < FRACTION_SIZE, "subnormal overflow");
-		self.set_fraction(self.denom(), self.numer())
+		self.checked_recip().expect("attempt to divide by zero")
 	}
 	
 	/// Returns the maximum of the two numbers.
@@ -300,16 +298,6 @@ impl r64 {
 		// cancel out common factors
 		let gcd = n.gcd(d);
 		self.set_fraction(n / gcd, d / gcd)
-	}
-	
-	#[inline]
-	fn get_frac_size(n: u128, d: u128) -> u64 {
-		let dsize = 128 - d.leading_zeros() - 1;
-		let nsize =
-			if cfg!(feature = "denormals") && dsize as u64 == FRACTION_SIZE && n == 1 { 0 }
-			else { 128 - n.leading_zeros() };
-		
-		(nsize + dsize) as u64
 	}
 	
 	// BEGIN related integer stuff
@@ -414,6 +402,7 @@ impl r64 {
 	/// 
 	/// If `self` is positive and both the numerator and denominator are perfect
 	/// squares, this returns their square root. Otherwise, returns `None`.
+	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_sqrt(self) -> Option<r64> {
 		if self.is_negative() {
 			return None;
@@ -430,23 +419,22 @@ impl r64 {
 	}
 	
 	/// Raises a number to an integer power.
-	// TODO: check that the new values fit in the type.
-	pub fn checked_pow(self, p: i32) -> Option<r64> {
-		let num = self.numer().checked_pow(p.abs() as u32);
-		let den = self.denom().checked_pow(p.abs() as u32);
-
-		match (num, den) {
-			(Some(num), Some(den)) =>
-				// power is positive
-				Some(if p >= 0 {
-					self.set_fraction(num, den)
-				}
-				// power is negative; switch numbers around
-				else {
-					self.set_fraction(den, num)
-				}),
-			_ => None
+	#[must_use = "this returns the result of the operation, without modifying the original"]
+	pub fn checked_pow(self, exp: i32) -> Option<r64> {
+		let exp_is_neg = exp < 0;
+		let exp_is_odd = (exp & 1) == 1;
+		let exp = exp.checked_abs()? as u32;
+		
+		let sign = exp_is_odd && self.is_sign_negative();
+		
+		let mut num = self.numer().checked_pow(exp)?;
+		let mut den = self.denom().checked_pow(exp)?;
+		
+		if exp_is_neg {
+			std::mem::swap(&mut num, &mut den);
 		}
+		
+		Some(r64::from_parts(sign, num, den))
 	}
 	
 	/// Raw transmutation to `u64`.
@@ -513,62 +501,55 @@ impl FromStr for r64 {
 	/// `Err(ParseRatioError)` if the string did not represent a valid number.
 	/// Otherwise, `Ok(n)` where `n` is the floating-bar number represented by
 	/// `src`.
-	fn from_str(src: &str) -> Result<Self, Self::Err> {
+	fn from_str(mut src: &str) -> Result<Self, Self::Err> {
+		use core::num::NonZeroU64;
+		
 		if src.is_empty() {
 			return Err(ParseRatioErr::Empty);
 		}
 		
+		// check for sign
+		let sign = src.starts_with('-');
+		
+		if sign { src = &src[1..]; }
+		
+		// special case NaN
 		if src == "NaN" {
-			return Ok(r64::NAN);
+			return Ok(r64::NAN.set_sign(sign));
 		}
 		
-		// if bar exists, parse as fraction
-		if let Some(pos) = src.find('/') {
-			// bar is at the end. invalid.
-			if pos == src.len() - 1 {
-				return Err(ParseRatioErr::Invalid);
-			}
-			
-			let numerator: i64 = src[0..pos].parse()?;
-			let denominator: u64 = src[pos+1..].parse()?;
-			
-			if denominator == 0 {
-				return Err(ParseRatioErr::Invalid);
-			}
-			
-			let denom_size = 64 - denominator.leading_zeros() - 1;
-			
-			// if subnormal, return early
-			#[cfg(feature = "denormals")]
-			if numerator.abs() == 1 && denom_size as u64 == FRACTION_SIZE {
-				let sign = numerator < 0;
-				let denominator = denominator & FRACTION_FIELD;
-				
-				return Ok(r64::from_parts(sign, 1, denominator));
-			}
-			
-			// ensure both fragments fit in the fraction field
-			let frac_size = denom_size + (64 - numerator.leading_zeros());
-			
-			if frac_size as u64 > FRACTION_SIZE {
-				return Err(ParseRatioErr::Overflow);
-			}
-			
-			Ok(r64::new(numerator, denominator))
+		// lookahead to find dividing bar, if any
+		let bar_pos = src.find('/');
+		let numer_end = bar_pos.unwrap_or(src.len());
+		
+		// parse numerator
+		let numerator = src[..numer_end]
+			.parse::<u64>()
+			.map_err(ParseRatioErr::Numer)?;
+		
+		// parse optional denominator
+		let denominator = bar_pos
+			.map(|pos|
+				src[pos+1..]
+				.parse::<NonZeroU64>()
+				.map_err(ParseRatioErr::Denom)
+			) // : Option<Result<u64, ParseRatioErr>>
+			.transpose()?
+			// : Option<u64>
+			.map(NonZeroU64::get)
+			.unwrap_or(1);
+		
+		// ensure parsed numbers fit in fraction field
+		let frac_size = r64::get_frac_size(
+			numerator as u128,
+			denominator as u128
+		);
+		
+		if frac_size > FRACTION_SIZE {
+			return Err(ParseRatioErr::Overflow);
 		}
-		// otherwise, parse as integer.
-		else {
-			let numerator: i64 = src.parse()?;
-			let mag = numerator.checked_abs()
-				.ok_or(ParseRatioErr::Overflow)?;
-			let frac_size = 64 - mag.leading_zeros();
-			
-			if frac_size as u64 > FRACTION_SIZE {
-				return Err(ParseRatioErr::Overflow);
-			}
-			
-			Ok(r64::from_parts(numerator < 0, mag as u64, 1))
-		}
+		
+		Ok(r64::from_parts(sign, numerator, denominator))
 	}
 }
 
@@ -808,18 +789,28 @@ mod tests {
 
 	#[test]
 	fn pow() {
-		assert_eq!(r64(0).pow(0), r64(1));
-		assert_eq!(r64(1).pow(1), r64(1));
-		assert_eq!(r64(2).pow(3), r64(8));
-		assert_eq!(r64(2).pow(-3), r64::from_str("1/8").unwrap());
+		assert_eq!(r64(0).pow(0),   r64(1));
+		assert_eq!(r64::NAN.pow(0), r64(1));
+		assert_eq!(r64(1).pow(1),   r64(1));
+		
+		assert_eq!(r64(3).pow(2),           r64(9));
+		assert_eq!(r64(3).pow(-2),          r64::new(1, 9));
+		assert_eq!(r64::new(-3, 1).pow(2),  r64(9));
+		assert_eq!(r64::new(-3, 1).pow(-2), r64::new(1, 9));
+		
+		assert_eq!(r64(2).pow(3),          r64(8));
+		assert_eq!(r64(2).pow(-3),         r64::new(1, 8));
+		assert_eq!(r64::new(1, 2).pow(3),  r64::new(1, 8));
+		assert_eq!(r64::new(1, 2).pow(-3), r64(8));
+		
+		assert_eq!(r64::new(-2, 1).pow(3),  r64::new(-8, 1));
+		assert_eq!(r64::new(-2, 1).pow(-3), r64::new(-1, 8));
+		assert_eq!(r64::new(-1, 2).pow(3),  r64::new(-1, 8));
+		assert_eq!(r64::new(-1, 2).pow(-3), r64::new(-8, 1));
 	}
 
 	#[test]
 	fn checked_pow() {
-		assert_eq!(r64(0).checked_pow(0), Some(r64(1)));
-		assert_eq!(r64(1).checked_pow(1), Some(r64(1)));
-		assert_eq!(r64(2).checked_pow(3), Some(r64(8)));
-		assert_eq!(r64(2).checked_pow(-3), Some(r64::from_str("1/8").unwrap()));
 		assert_eq!(r64(3).checked_pow(60), None);
 	}
 
@@ -874,7 +865,7 @@ mod tests {
 	#[test]
 	fn recip() {
 		assert_eq!(r64(5).recip(), r64::from_parts(false, 1, 5));
-		assert_eq!(r64::from_parts(false, 5, 2).recip(), r64::from_parts(false, 2, 5));
+		assert_eq!(r64::new(5, 2).recip(), r64::new(2, 5));
 		assert_eq!(r64(1).recip(), r64(1));
 	}
 	
@@ -990,6 +981,14 @@ mod tests {
 		assert_eq!("+1".parse::<r64>().unwrap(), r64(1));
 		assert_eq!("-1".parse::<r64>().unwrap(), r64::from(-1 as i8));
 		assert_eq!("1/1".parse::<r64>().unwrap(), r64(1));
+	}
+	
+	#[test] #[should_panic]
+	fn from_str_fail() {
+		"1/-1".parse::<r32>().unwrap();
+		"/1".parse::<r32>().unwrap();
+		"1/".parse::<r32>().unwrap();
+		"1/0".parse::<r32>().unwrap();
 	}
 	
 	#[test]
