@@ -321,6 +321,11 @@ impl r32 {
 		self.set_fraction(n / gcd, d / gcd)
 	}
 	
+	#[inline]
+	pub fn as_u32(self) -> Option<u32> {
+		todo!()
+	}
+	
 	// BEGIN related integer stuff
 	
 	/// Checked rational addition. Computes `self + rhs`, returning `None` if
@@ -652,6 +657,8 @@ impl From<f32> for r32 {
 	}
 }
 
+// TODO document wrt precision
+// TODO add TryFrom version
 impl Into<f32> for r32 {
 	fn into(self) -> f32 {
 		let s = if self.is_negative() { -1.0 } else { 1.0 };
@@ -682,6 +689,7 @@ impl PartialEq for r32 {
 	}
 }
 
+// TODO document
 impl PartialOrd for r32 {
 	fn partial_cmp(&self, other: &r32) -> Option<Ordering> {
 		// both are nan or both are zero
@@ -691,6 +699,7 @@ impl PartialOrd for r32 {
 		}
 		
 		// only one of them is nan
+		// TODO should it be like this?
 		if self.is_nan() || other.is_nan() {
 			return None;
 		}
