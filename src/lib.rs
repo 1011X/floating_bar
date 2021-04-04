@@ -30,43 +30,50 @@ r32: sdddddffffffffffffffffffffffffff
 r64: sddddddfffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ```
 
-The fraction field stores both the numerator and the denominator as separate
-values. Their exact size at any given moment depends on the size field, which
-gives the position of the partition (the "bar") from the right between the two
-values.
+The fraction field stores both the numerator and the denominator. The size of
+the denominator is determined by the denominator-size field, which gives the position of the partition (the "bar") from the right.
 
 The denominator has an implicit 1 bit which goes in front of the actual value
 stored. Thus, a size field of zero has an implicit denominator value of 1,
-making it compatible with integers.
+making it compatible with integers. This is similar to the implicit bit
+convention followed by floating-point numbers.
 
-## Features
+## NaNs
 
-### `denormals`
+It's possible to have invalid values in this format, which are denoted as NaN
+for "Not a Number". Invalid values are those which have a denominator size
+greater than or equal to the size of the fraction field.
 
-This enables denormal values. When the value of the denominator takes up the
-whole fraction field, the numerator will take an implicit value of 1.
-
-Due to the performance penalty of calculating with denormal values, this is
-disabled by default.
-
-## NaN's
-
-Unfortunately, it's possible to have invalid values with this format. Invalid
-values are those which have a denominator size larger than the number of bits in
-the fraction field, and are represented as `NaN`.
-
-This library focuses on the numeric value of the format and is meant to limit
+This library focuses on the numeric value of this type, and is meant to limit
 the propagation of NaNs. Any operation that could give an undefined value (e.g.
 when overflowing or dividing by zero) will panic instead of returning a NaN.
 Effort is put in to not clobber possible payload values in NaNs, but no
 guarantees are made.
+
+### Comparisons
+
+By default, floating-bar numbers implement only `PartialOrd` and not `Ord`. Any
+comparison on a NaN automatically returns false. However, if *both* numbers are
+NaNs, they compare equal.
+
+For `PartialOrd`, floating-bar numbers follow these rules:
+1. If both numbers are NaN, they're equal.
+2. If both numbers are zero (either positive or negative), they're equal.
+3. If only one number is NaN, they're incomparable and `None` is returned.
+4. Their signs are then checked and,
+   - If they're different, a comparison of the signs is returned.
+   - If they're the same, a comparison of the numbers is returned.
+
+## Float conversions
+
+Converting to float in practice has shown to be accurate up to 7 digits.
 */
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "bench", feature(test))]
 
-use std::fmt;
-use std::error;
-use std::num::ParseIntError;
+use core::fmt;
+use core::num::ParseIntError;
 
 mod r32_t;
 mod r64_t;
@@ -79,42 +86,48 @@ pub use r64_t::r64;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseRatioErr {
 	/// Value being parsed is empty.
-    Empty,
-    
-    /// Numbers are too large to store together in the fraction field.
-    Overflow,
-    
-    /// Error when parsing numerator.
-    Numer(ParseIntError),
-    
-    /// Error when parsing denominator.
-    Denom(ParseIntError),
+	///
+	/// Among other causes, this variant will be constructed when parsing an
+	/// empty string.
+	Empty,
+	
+	/// Numbers are too large to store together in the fraction field.
+	Overflow,
+	
+	/// Error when parsing numerator.
+	Numerator(ParseIntError),
+	
+	/// Error when parsing denominator.
+	/// 
+	/// This will contain an error kind of `Zero` if the denominator is `0`.
+	Denominator(ParseIntError),
 }
 
 impl fmt::Display for ParseRatioErr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ParseRatioErr::Empty =>
-            	f.write_str("cannot parse rational from empty string"),
-        	
-            ParseRatioErr::Overflow =>
-            	f.write_str("numbers are too large to fit in fraction"),
-        	
-            ParseRatioErr::Numer(pie) =>
-            	write!(f, "numerator error: {}", pie),
-        	
-        	ParseRatioErr::Denom(pie) =>
-        		write!(f, "denominator error: {}", pie),
-        }
-    }
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		match self {
+			ParseRatioErr::Empty =>
+				f.write_str("cannot parse rational from empty string"),
+			
+			ParseRatioErr::Overflow =>
+				f.write_str("numbers are too large to fit in fraction"),
+			
+			ParseRatioErr::Numerator(pie) =>
+				write!(f, "numerator error: {}", pie),
+			
+			ParseRatioErr::Denominator(pie) =>
+				write!(f, "denominator error: {}", pie),
+		}
+	}
 }
 
-impl error::Error for ParseRatioErr {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match self {
-            ParseRatioErr::Numer(pie) => Some(pie),
-            ParseRatioErr::Denom(pie) => Some(pie),
-            _ => None
-        }
-    }
+#[cfg(feature = "std")]
+impl std::error::Error for ParseRatioErr {
+	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+		match self {
+			ParseRatioErr::Numerator(pie) => Some(pie),
+			ParseRatioErr::Denominator(pie) => Some(pie),
+			_ => None
+		}
+	}
 }

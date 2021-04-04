@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use std::fmt;
-use std::cmp::Ordering;
-use std::ops::*;
-use std::str::FromStr;
+use core::fmt;
+use core::cmp::Ordering;
+use core::ops::*;
+use core::str::FromStr;
 
 use gcd::Gcd;
 use integer_sqrt::IntegerSquareRoot;
@@ -80,7 +80,7 @@ impl r64 {
 		}
 	}
 	
-	/// Returns the denominator value for this rational number.
+	/// Returns the denominator of this rational number.
 	#[inline]
 	pub fn denom(self) -> u64 {
 		let denom_region = (1 << self.denom_size()) - 1;
@@ -92,7 +92,7 @@ impl r64 {
 	/// If `true`, sign bit is set. Otherwise, it's unset.
 	#[inline]
 	fn set_sign(self, sign: bool) -> r64 {
-		r64(self.0 & !SIGN_BIT | (sign as u64) << 63)
+		r64(self.abs().0 | (sign as u64) << 63)
 	}
 	
 	#[inline]
@@ -100,17 +100,20 @@ impl r64 {
 		r64::from_parts(self.is_sign_negative(), numer, denom)
 	}
 	
-	#[inline]
-	fn is_sign_positive(self) -> bool {
-		self.0 & SIGN_BIT == 0
-	}
-	
-	#[inline]
-	fn is_sign_negative(self) -> bool {
-		!self.is_sign_positive()
-	}
-	
 	// BEGIN related float stuff
+	
+	/// Returns the integer part of a number.
+	#[inline]
+	pub fn trunc(self) -> r64 {
+		self.set_fraction(self.numer() / self.denom(), 1)
+	}
+	
+	/// Returns the fractional part of a number.
+	#[inline]
+	pub fn fract(self) -> r64 {
+		let d = self.denom();
+		self.set_fraction(self.numer() % d, d)
+	}
 	
 	/// Returns the largest integer less than or equal to a number.
 	pub fn floor(self) -> r64 {
@@ -119,7 +122,7 @@ impl r64 {
 			if self.numer() % self.denom() == 0 {
 				self
 			} else {
-				self.set_fraction(self.numer() / self.denom() + 1, 1)
+				self.trunc() - r64(1)
 			}
 		} else {
 			self.trunc()
@@ -135,7 +138,7 @@ impl r64 {
 			if self.numer() % self.denom() == 0 {
 				self
 			} else {
-				self.set_fraction(self.numer() / self.denom() + 1, 1)
+				self.trunc() + r64(1)
 			}
 		}
 	}
@@ -144,23 +147,11 @@ impl r64 {
 	/// zero.
 	pub fn round(self) -> r64 {
 		if self.is_negative() {
-			(self - r64(1) / r64(2)).ceil()
+			self - r64(1) / r64(2)
 		} else {
-			(self + r64(1) / r64(2)).floor()
+			self + r64(1) / r64(2)
 		}
-	}
-	
-	/// Returns the integer part of a number.
-	#[inline]
-	pub fn trunc(self) -> r64 {
-		self.set_fraction(self.numer() / self.denom(), 1)
-	}
-	
-	/// Returns the fractional part of a number.
-	#[inline]
-	pub fn fract(self) -> r64 {
-		let d = self.denom();
-		self.set_fraction(self.numer() % d, d)
+		.trunc()
 	}
 	
 	/// Computes the absolute value of `self`. Returns NaN if the number is NaN.
@@ -183,16 +174,30 @@ impl r64 {
 	}
 	
 	/// Raises a number to an integer power.
-	// TODO: check that the new values fit in the type.
+	/// 
+	/// # Panics
+	/// 
+	/// Panics on overflow.
+	#[cfg(not(feature = "quiet-nan"))]
+	#[inline]
 	pub fn pow(self, exp: i32) -> r64 {
 		self.checked_pow(exp).expect("attempt to multiply with overflow")
 	}
 	
-	/// Takes the square root of a number.
+	/// Raises a number to an integer power.
+	/// 
+	/// Returns NaN on overflow.
+	#[cfg(feature = "quiet-nan")]
+	#[inline]
+	pub fn pow(self, exp: i32) -> r32 {
+		self.checked_pow(exp).unwrap_or(r32::NAN)
+	}
+	
+	/// Calculates the approximate square root of the value.
 	/// 
 	/// **Warning**: This method can give a number that overflows easily, so
 	/// use it with caution, and discard it as soon as you're done with it.
-	pub fn sqrt(self) -> r64 {
+	fn sqrt(self) -> r64 {
 		// TODO: If `self` is positive, this should approximate its square root
 		// by calculating a repeated fraction for a fixed number of steps.
 		let f: f64 = self.into();
@@ -200,13 +205,12 @@ impl r64 {
 	}
 	/*
 	TODO consider whether to actually add these.
-	/// Takes the cube root of a number.
+	/// Calculates the approximate cube root of the value.
 	/// 
 	/// If `self` is positive and its numerator and denominator are perfect
 	/// cubes, returns their cube root. Otherwise, returns `None`.
-	#[inline]
 	pub fn checked_cbrt(self) -> Option<r64> {
-		unimplemented!()
+		todo!()
 	}
 	*/
 	/// Returns `true` if this value is `NaN` and `false` otherwise.
@@ -221,33 +225,47 @@ impl r64 {
 	
 	/// Returns `true` if the number is neither zero, subnormal, or `NaN`.
 	#[inline]
-	pub fn is_normal(self) -> bool {
+	fn is_normal(self) -> bool {
 		self.numer() != 0
 		&& self.denom_size() < FRACTION_SIZE
 	}
 	
-	/// Returns `true` if and only if `self` has a positive sign, including
-	/// `+0.0` (but not NaNs with positive sign bit).
+	/// Returns `true` if `self` is positive and `false` if the number is zero,
+	/// negative, or `NaN`.
 	#[inline]
 	pub fn is_positive(self) -> bool {
-		self.numer() != 0 && self.is_sign_positive()
+		!self.is_nan()
+		&& self.numer() > 0
+		&& self.is_sign_positive()
 	}
 	
 	/// Returns `true` if and only if self has a negative sign, including
 	/// `-0.0` (but not NaNs with negative sign bit).
 	#[inline]
 	pub fn is_negative(self) -> bool {
-		self.numer() != 0 && self.is_sign_negative()
+		!self.is_nan()
+		&& self.numer() > 0
+		&& self.is_sign_negative()
 	}
 	
 	/// Takes the reciprocal (inverse) of a number, `1/x`.
 	/// 
 	/// # Panics
 	/// 
-	/// Panics when trying to set a numerator of zero as denominator.
+	/// Panics when trying to set a numerator of zero as the denominator.
+	#[cfg(not(feature = "quiet-nan"))]
 	#[inline]
 	pub fn recip(self) -> r64 {
 		self.checked_recip().expect("attempt to divide by zero")
+	}
+	
+	/// Takes the reciprocal (inverse) of a number, `1/x`.
+	/// 
+	/// If the numerator is zero, this will return `NaN`.
+	#[cfg(feature = "quiet-nan")]
+	#[inline]
+	pub fn recip(self) -> r64 {
+		self.checked_recip().unwrap_or(r64::NAN)
 	}
 	
 	/// Returns the maximum of the two numbers.
@@ -304,7 +322,6 @@ impl r64 {
 	
 	/// Checked rational addition. Computes `self + rhs`, returning `None` if
 	/// overflow occurred.
-	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_add(self, rhs: r64) -> Option<r64> {
 		// self = a/b, other = c/d
 		
@@ -339,7 +356,6 @@ impl r64 {
 	
 	/// Checked rational subtraction. Computes `self - rhs`, returning `None` if
 	/// overflow occurred.
-	#[must_use = "this returns the result of the operation, without modifying the original"]
 	#[inline]
 	pub fn checked_sub(self, rhs: r64) -> Option<r64> {
 		self.checked_add(-rhs)
@@ -347,7 +363,6 @@ impl r64 {
 	
 	/// Checked rational multiplication. Computes `self * rhs`, returning `None`
 	/// if overflow occurred.
-	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_mul(self, rhs: r64) -> Option<r64> {
 		let mut n = self.numer() as u128 * rhs.numer() as u128;
 		let mut d = self.denom() as u128 * rhs.denom() as u128;
@@ -371,7 +386,6 @@ impl r64 {
 	
 	/// Checked rational division. Computes `self / rhs`, returning `None` if
 	/// `rhs == 0` or the division results in overflow.
-	#[must_use = "this returns the result of the operation, without modifying the original"]
 	#[inline]
 	pub fn checked_div(self, rhs: r64) -> Option<r64> {
 		self.checked_mul(rhs.checked_recip()?)
@@ -379,15 +393,17 @@ impl r64 {
 	
 	/// Checked rational remainder. Computes `self % rhs`, returning `None` if
 	/// `rhs == 0` or the division results in overflow.
-	#[must_use = "this returns the result of the operation, without modifying the original"]
 	#[doc(hidden)]
 	pub fn checked_rem(self, rhs: r64) -> Option<r64> {
-		todo!()
+		let div = self.checked_div(rhs)?;
+		let diff = div.checked_sub(div.floor())?;
+		// TODO do we really need to be consistent with rust's % ?
+		// if not, we can maybe remove set_sign() below.
+		Some(diff.checked_mul(rhs)?.set_sign(self.is_negative()))
 	}
 	
 	/// Takes the reciprocal (inverse) of a number, `1/x`. Returns `None` if the
 	/// numerator is zero.
-	#[must_use = "this returns the result of the operation, without modifying the original"]
 	#[inline]
 	pub fn checked_recip(self) -> Option<r64> {
 		if self.numer() == 0 {
@@ -402,24 +418,37 @@ impl r64 {
 	/// 
 	/// If `self` is positive and both the numerator and denominator are perfect
 	/// squares, this returns their square root. Otherwise, returns `None`.
-	#[must_use = "this returns the result of the operation, without modifying the original"]
 	pub fn checked_sqrt(self) -> Option<r64> {
 		if self.is_negative() {
 			return None;
 		}
 		
-		let nsqrt = self.numer().integer_sqrt();
-		let dsqrt = self.denom().integer_sqrt();
+		let n = self.numer().integer_sqrt();
+		let d = self.denom().integer_sqrt();
 
-		if self.numer() == nsqrt * nsqrt && self.denom() == dsqrt * dsqrt {
-			Some(r64::new(nsqrt as i64, dsqrt))
+		if self.numer() == n * n && self.denom() == d * d {
+			Some(r64::new(n as i64, d))
 		} else {
 			None
 		}
 	}
-	
-	/// Raises a number to an integer power.
-	#[must_use = "this returns the result of the operation, without modifying the original"]
+	/*
+	/// Takes the cube root of a number.
+	/// 
+	/// If `self` is positive and its numerator and denominator are perfect
+	/// cubes, this returns their cube root. Otherwise, returns `None`.
+	pub fn checked_cbrt(self) -> Option<r32> {
+		let n = self.numer().integer_cbrt();
+		let d = self.denom().integer_cbrt();
+
+		if self.numer() == n * n * n && self.denom() == d * d * d {
+			Some(r32::new(n as i32, d))
+		} else {
+			None
+		}
+	}
+	*/
+	/// Raises a number to an integer power. Returns `None` on overflow.
 	pub fn checked_pow(self, exp: i32) -> Option<r64> {
 		let exp_is_neg = exp < 0;
 		let exp_is_odd = (exp & 1) == 1;
@@ -431,19 +460,61 @@ impl r64 {
 		let mut den = self.denom().checked_pow(exp)?;
 		
 		if exp_is_neg {
-			std::mem::swap(&mut num, &mut den);
+			core::mem::swap(&mut num, &mut den);
 		}
 		
 		Some(r64::from_parts(sign, num, den))
 	}
 	
+	/// Checked conversion to `i64`.
+	///
+	/// Returns `i64` value if denominator is 1. Otherwise, returns `None`.
+	#[inline]
+	pub fn to_i64(self) -> Option<i64> {
+		if self.denom_size() != 0 {
+			return None;
+		}
+		
+		Some(
+			if self.is_sign_negative() {
+				-(self.abs().0 as i64)
+			} else {
+				self.0 as i64
+			}
+		)
+	}
+	
+	// BEGIN bitwise representation stuff
+	
 	/// Raw transmutation to `u64`.
+	/// 
+	/// Useful if you need access to the payload bits of a NaN value.
 	#[inline]
 	pub fn to_bits(self) -> u64 { self.0 }
 	
 	/// Raw transmutation from `u64`.
 	#[inline]
 	pub fn from_bits(bits: u64) -> r64 { r64(bits) }
+	
+	/// Returns `true` if `self` has a positive sign, including positive zero,
+	/// and `NaN`s with positive sign bit.
+	/// 
+	/// If you'd prefer to know if the value is strictly positive, consider
+	/// using [`r64::is_positive`] instead.
+	#[inline]
+	pub fn is_sign_positive(self) -> bool {
+		self.0 & SIGN_BIT == 0
+	}
+	
+	/// Returns `true` if `self` has a negative sign, including negative zero,
+	/// and `NaN`s with negative sign bit.
+	/// 
+	/// If you'd prefer to know if the value is strictly negative, consider
+	/// using [`r64::is_negative`] instead.
+	#[inline]
+	pub fn is_sign_negative(self) -> bool {
+		!self.is_sign_positive()
+	}
 }
 
 impl fmt::Display for r64 {
@@ -470,15 +541,15 @@ impl fmt::Display for r64 {
 
 impl fmt::Debug for r64 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		if self.is_nan() {
-			return f.write_str("NaN");
-		}
-		
 		if self.is_sign_negative() {
 			f.write_str("-")?;
 		}
 		
-		write!(f, "{}/{}", self.numer(), self.denom())
+		if self.is_nan() {
+			f.write_str("NaN")
+		} else {
+			write!(f, "{}/{}", self.numer(), self.denom())
+		}
 	}
 }
 
@@ -525,14 +596,14 @@ impl FromStr for r64 {
 		// parse numerator
 		let numerator = src[..numer_end]
 			.parse::<u64>()
-			.map_err(ParseRatioErr::Numer)?;
+			.map_err(ParseRatioErr::Numerator)?;
 		
 		// parse optional denominator
 		let denominator = bar_pos
 			.map(|pos|
 				src[pos+1..]
 				.parse::<NonZeroU64>()
-				.map_err(ParseRatioErr::Denom)
+				.map_err(ParseRatioErr::Denominator)
 			) // : Option<Result<u64, ParseRatioErr>>
 			.transpose()?
 			// : Option<u64>
@@ -597,33 +668,31 @@ impl From<r32> for r64 {
 
 impl From<f32> for r64 {
 	fn from(f: f32) -> Self {
-		r32::from(f).into()
+		r64::from(f as f64)
 	}
 }
 
 impl From<f64> for r64 {
-	/// Based on: https://www.johndcook.com/blog/2010/10/20/best-rational-approximation/
+	/// Based on [John D. Cook's Best Rational Approximation post](https://www.johndcook.com/blog/2010/10/20/best-rational-approximation/)
 	fn from(mut f: f64) -> Self {
 		// why 29? bc it's fraction_size / 2 + 1
 		// div by 2 is to have enough space for both numer and denom.
 		// plus 1 is to count implicit bit bc numer and denom can both have 29
 		// bits of precision here.
 		const N: u64 = (1 << 29) - 1; // 2^29 - 1 = 536870911
-		let is_lorge = f.abs() > 1.0;
 		let is_neg = f < 0.0;
 		
 		if f.is_nan() || f.is_infinite() {
 			return r64::NAN;
 		}
 		
-		if is_lorge { f = f.recip(); }
-		if is_neg   { f = f.abs();   }
+		if is_neg { f = f.abs() }
 		
 		let (mut a, mut b) = (0, 1); // lower
-		let (mut c, mut d) = (1, 1); // upper
+		let (mut c, mut d) = (1, 0); // upper
 		let mut is_mediant = false;
 		
-		// while neither denoms are too big,
+		// while neither denominator is too big,
 		while b <= N && d <= N {
 			let mediant = (a + c) as f64 / (b + d) as f64;
 			
@@ -631,11 +700,11 @@ impl From<f64> for r64 {
 				is_mediant = true;
 				break;
 			} else if f > mediant {
-				a = a + c;
-				b = b + d;
+				a += c;
+				b += d;
 			} else {
-				c = a + c;
-				d = b + d;
+				c += a;
+				d += b;
 			}
 		}
 		
@@ -651,35 +720,28 @@ impl From<f64> for r64 {
 			else     { (a, b) } // else, lower bound
 		};
 		
-		// use reciprocal if original number wasn't between 0 and 1
-		if is_lorge {
-			return r64::from_parts(is_neg, result.1, result.0);
-		} else {
-			return r64::from_parts(is_neg, result.0, result.1);
-		}
+		r64::from_parts(is_neg, result.0, result.1)
 	}
 }
 
-impl Into<f32> for r64 {
-	fn into(self) -> f32 {
-		let s = if self.is_negative() { -1.0 } else { 1.0 };
-		s * self.numer() as f32 / self.denom() as f32
+impl From<r64> for f32 {
+	fn from(r: r64) -> f32 {
+		let s = if r.is_negative() { -1.0 } else { 1.0 };
+		s * r.numer() as f32 / r.denom() as f32
 	}
 }
 
-impl Into<f64> for r64 {
-	fn into(self) -> f64 {
-		let s = if self.is_negative() { -1.0 } else { 1.0 };
-		s * self.numer() as f64 / self.denom() as f64
+impl From<r64> for f64 {
+	fn from(r: r64) -> f64 {
+		let s = if r.is_negative() { -1.0 } else { 1.0 };
+		s * r.numer() as f64 / r.denom() as f64
 	}
 }
 
 impl Neg for r64 {
 	type Output = r64;
 	
-	fn neg(self) -> Self::Output {
-		r64(self.0 ^ SIGN_BIT)
-	}
+	fn neg(self) -> Self::Output { r64(self.0 ^ SIGN_BIT) }
 }
 
 impl PartialEq for r64 {
@@ -720,7 +782,13 @@ impl Mul for r64 {
 	type Output = r64;
 	
 	fn mul(self, other: r64) -> r64 {
-		self.checked_mul(other).expect("attempt to multiply with overflow")
+		let result = self.checked_mul(other);
+		
+		if cfg!(feature = "quiet-nan") {
+			result.unwrap_or(r64::NAN)
+		} else {
+			result.expect("attempt to multiply with overflow")
+		}
 	}
 }
 
@@ -728,7 +796,13 @@ impl Div for r64 {
 	type Output = r64;
 
 	fn div(self, other: r64) -> r64 {
-		self.checked_div(other).expect("attempt to divide with overflow")
+		let result = self.checked_div(other);
+		
+		if cfg!(feature = "quiet-nan") {
+			result.unwrap_or(r64::NAN)
+		} else {
+			result.expect("attempt to divide with overflow")
+		}
 	}
 }
 
@@ -736,7 +810,13 @@ impl Add for r64 {
 	type Output = r64;
 	
 	fn add(self, other: r64) -> r64 {
-		self.checked_add(other).expect("attempt to add with overflow")
+		let result = self.checked_add(other);
+		
+		if cfg!(feature = "quiet-nan") {
+			result.unwrap_or(r64::NAN)
+		} else {
+			result.expect("attempt to add with overflow")
+		}
 	}
 }
 
@@ -744,16 +824,22 @@ impl Sub for r64 {
 	type Output = r64;
 
 	fn sub(self, other: r64) -> r64 {
-		self.checked_sub(other).expect("attempt to subtract with overflow")
+		let result = self.checked_sub(other);
+		
+		if cfg!(feature = "quiet-nan") {
+			result.unwrap_or(r64::NAN)
+		} else {
+			result.expect("attempt to subtract with overflow")
+		}
 	}
 }
 
+#[doc(hidden)]
 impl Rem for r64 {
 	type Output = r64;
 	
 	fn rem(self, other: r64) -> r64 {
-		let div = self / other;
-		((div - div.floor()) * other).set_sign(self.is_negative())
+		todo!()
 	}
 }
 
@@ -989,6 +1075,23 @@ mod tests {
 		"/1".parse::<r32>().unwrap();
 		"1/".parse::<r32>().unwrap();
 		"1/0".parse::<r32>().unwrap();
+	}
+	
+	#[test]
+	fn from_f32() {
+		assert_eq!(r64::from(std::f32::consts::E), r64(2850325) / r64(1048576));
+		assert_eq!(r64::from(std::f32::consts::TAU), r64(13176795) / r64(2097152));
+	}
+	
+	#[test]
+	fn from_f64() {
+		assert_eq!(r64::from(0.0), r64(0));
+		assert_eq!(r64::from(1.0), r64(1));
+		assert_eq!(r64::from(-1.0), -r64(1));
+		assert_eq!(r64::from(0.2), r64(1) / r64(5));
+		assert_eq!(r64::from(1.0 - 0.7), r64(3) / r64(10));
+		assert_eq!(r64::from(std::f64::consts::E), r64(268876667) / r64(98914198));
+		assert_eq!(r64::from(std::f64::consts::TAU), r64(411557987) / r64(65501488));
 	}
 	
 	#[test]
