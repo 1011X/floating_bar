@@ -16,8 +16,8 @@ Although floating-point types can usually serve as a good enough substitute, the
 
 | Tests (us) | f32  | r32  | f64  | r64  |
 |------------|:----:|:----:|:----:|:----:|
-| add        | 1.39 | 29.8 | 1.39 | 45.3 |
-| mul        | 0.86 | 24.6 | 1.86 | 36.2 |
+| add        | 1.38 | 29.5 | 1.37 | 44.5 |
+| mul        | 0.85 | 24.3 | 1.84 | 35.6 |
 -->
 ## Features
 

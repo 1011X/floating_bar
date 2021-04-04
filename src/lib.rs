@@ -17,7 +17,6 @@ println!("{}", progress);
 ## Structure
 
 The floating bar types follow a general structure:
-* the **sign bit**
 * the denominator **size field** (always log<sub>2</sub> of the type's total size)
 * the **fraction field** (uses all the remaining bits)
 
@@ -31,7 +30,7 @@ r64: ddddddffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ```
 
 The fraction field stores both the numerator and the denominator. The size of
-the denominator is determined by the denominator-size field, which gives the position of the partition (the "bar") from the right.
+the denominator is determined by the denominator-size field, which gives the position of the partition (the "fraction bar") from the right.
 
 The denominator has an implicit 1 bit which goes in front of the actual value
 stored. Thus, a size field of zero has an implicit denominator value of 1,
@@ -41,8 +40,8 @@ convention followed by floating-point numbers.
 ## NaNs
 
 It's possible to have invalid values in this format, which are denoted as NaN
-for "Not a Number". Invalid values are those which have a denominator size
-greater than or equal to the size of the fraction field.
+for "Not a Number". Invalid values are those whose value in the denominator-size
+field is greater than or equal to the size of the entire fraction field.
 
 This library focuses on the numeric value of this type, and is meant to limit
 the propagation of NaNs. Any operation that could give an undefined value (e.g.
@@ -52,13 +51,11 @@ guarantees are made.
 
 ### Comparisons
 
-By default, floating-bar numbers implement only `PartialOrd` and not `Ord`. Any
-comparison on a NaN automatically returns false. However, if *both* numbers are
-NaNs, they compare equal.
+By default, floating-bar numbers implement only `PartialOrd` and not `Ord`.
 
 For `PartialOrd`, floating-bar numbers follow these rules:
 1. If both numbers are NaN, they're equal.
-2. If both numbers are zero (either positive or negative), they're equal.
+2. If both numbers are zero, they're equal.
 3. If only one number is NaN, they're incomparable and `None` is returned.
 4. Their signs are then checked and,
    - If they're different, a comparison of the signs is returned.
