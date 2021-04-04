@@ -24,10 +24,10 @@ The floating bar types follow a general structure:
 More concretely, they are represented like this:
 
 ```txt
-s = sign, d = denominator size, f = fraction field
+d = denominator size, f = fraction field
 
-r32: sdddddffffffffffffffffffffffffff
-r64: sddddddfffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+r32: dddddfffffffffffffffffffffffffff
+r64: ddddddffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ```
 
 The fraction field stores both the numerator and the denominator. The size of
