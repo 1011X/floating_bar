@@ -47,18 +47,17 @@ size of the entire fraction field. The library mostly ignores these values, and
 only uses one particular value to provide a `NAN` constant. They can be used to
 store payloads if desired using the `.to_bits()` and `from_bits()` methods.
 Effort is put into not clobbering possible payload values, but no guarantees are
-made. These take up 18.75% of the value space.
+made.
 
 **Reducible** values are those where the numerator and denominator share some
 common factor that has not been canceled out, and thus take up more space than
 their normalized form. Due to the performance cost of finding and canceling out
 common factors, reducible values are only normalized when absolutely necessary,
-such as when the result would otherwise overflow. These take up about 31.86% of
-the value space.
+such as when the result would otherwise overflow.
 
 **Normal** values are those where the numerator and denominator don't share any
 common factors, and could not be any smaller while still accurately representing
-its value. These take up about 49.39% of the value space.
+its value.
 
 ## Behavior
 
