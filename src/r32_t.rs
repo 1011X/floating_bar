@@ -1,13 +1,9 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
 use core::fmt;
 use core::cmp::Ordering;
 use core::ops::*;
 use core::str::FromStr;
 
 use gcd::Gcd;
-use integer_sqrt::IntegerSquareRoot;
 
 use super::ParseRatioErr;
 
@@ -16,29 +12,14 @@ use super::ParseRatioErr;
 #[derive(Clone, Copy, Eq, Default)]
 pub struct r32(u32);
 
+const DSIZE_SIZE: u32 = 5;
 const FRACTION_SIZE: u32 = 27;
 
 const FRACTION_FIELD: u32 = (1 << FRACTION_SIZE) - 1;
-const SIZE_FIELD: u32 = !FRACTION_FIELD;
 
 impl r32 {
-	/// The highest value that can be represented by this rational type.
-	pub const MAX: r32 = r32(1 << (FRACTION_SIZE - 1));
 	
-	/// The lowest value that can be represented by this rational type.
-	pub const MIN: r32 = r32(1 << FRACTION_SIZE);
-	
-	/// The smallest positive value that can be represented by this rational
-	/// type.
-	pub const MIN_POSITIVE: r32 = r32(FRACTION_SIZE << FRACTION_SIZE | FRACTION_FIELD);
-	
-	/// Not a Number (NaN).
-	pub const NAN: r32 = r32(SIZE_FIELD);
-
-	#[inline]
-	fn denom_size(self) -> u32 {
-		self.0 >> FRACTION_SIZE
-	}
+	// PRIVATE methods
 	
 	#[inline]
 	fn get_frac_size(n: i64, d: u64) -> u32 {
@@ -52,21 +33,16 @@ impl r32 {
 		nsize + dsize
 	}
 	
-	/// Creates a rational number from a signed numerator and an unsigned
-	/// denominator.
+	// PUBLIC API
+	
+	/// Creates a rational number without checking the values.
+	/// 
+	/// # Safety
+	/// 
+	/// The values must fit in the fraction field.
 	#[inline]
-	pub fn new(numer: i32, denom: u32) -> r32 {
+	pub const unsafe fn new_unchecked(numer: i32, denom: u32) -> r32 {
 		let denom_size = 32 - denom.leading_zeros() - 1;
-		let numer_size = if numer >= 0 {
-			32 - numer.leading_zeros() + 1
-		} else {
-			32 - numer.leading_ones() + 1
-		};
-		
-		if numer_size + denom_size > FRACTION_SIZE {
-			panic!("numbers are too big")
-		}
-		
 		let denom_mask = (1 << denom_size) - 1;
 		let numer_mask = FRACTION_FIELD & !denom_mask;
 		
@@ -77,241 +53,65 @@ impl r32 {
 		)
 	}
 	
-	/// Returns the numerator of this rational number.
-	#[inline]
-	pub fn numer(self) -> i32 {
-		let denom_size = self.denom_size();
-		// apparently this does sign-extension
-		(self.0 as i32).wrapping_shl(5).wrapping_shr(5 + denom_size)
-	}
-	
-	/// Returns the denominator of this rational number.
-	#[inline]
-	pub fn denom(self) -> u32 {
-		// FIXME consider what happens when self is nan
-		let denom_region = (1 << self.denom_size()) - 1;
-		1 << self.denom_size() | (self.0 & denom_region)
-	}
-	
-	// BEGIN related float stuff
-	
-	/// Returns the integer part of a number.
-	#[inline]
-	pub fn trunc(self) -> r32 {
-		r32::new(self.numer() / self.denom() as i32, 1)
-	}
-	
-	/// Returns the fractional part of a number.
-	#[inline]
-	pub fn fract(self) -> r32 {
-		let d = self.denom();
-		r32::new(self.numer() % (d as i32), d)
-	}
-	
-	/// Returns the largest integer less than or equal to a number.
-	pub fn floor(self) -> r32 {
-		if self.is_negative() {
-			// if self is a whole number,
-			if self.numer() % (self.denom() as i32) == 0 {
-				self
-			} else {
-				self.trunc() - r32(1)
-			}
+	/// Creates a rational number if the given values both fit in the fraction
+	/// field.
+	pub fn new(mut numer: i32, mut denom: u32) -> Option<r32> {
+		// do this first anyways to simplify logic stuff
+		let gcd = numer.unsigned_abs().gcd(denom);
+		numer /= gcd as i32;
+		denom /= gcd;
+		
+		// the `- 1` at the end is the implicit denominator bit
+		let denom_size = 32 - denom.leading_zeros() - 1;
+		
+		// the `+ 1` at the end accounts for the sign
+		let numer_size = if numer >= 0 {
+			32 - numer.leading_zeros() + 1
 		} else {
-			self.trunc()
+			32 - numer.leading_ones() + 1
+		};
+		
+		if numer_size + denom_size > FRACTION_SIZE {
+			return None;
 		}
-	}
-	
-	/// Returns the smallest integer greater than or equal to a number.
-	pub fn ceil(self) -> r32 {
-		if self.is_negative() {
-			self.trunc()
-		} else {
-			// if self is a whole number,
-			if self.numer() % (self.denom() as i32) == 0 {
-				self
-			} else {
-				self.trunc() + r32(1)
-			}
+		
+		// SAFETY: we just checked if the values fit.
+		unsafe {
+			Some(r32::new_unchecked(numer, denom))
 		}
-	}
-	
-	/// Returns the nearest integer to a number. Round half-way cases away from
-	/// zero.
-	pub fn round(self) -> r32 {
-		if self.is_negative() {
-			self - r32(1) / r32(2)
-		} else {
-			self + r32(1) / r32(2)
-		}
-		.trunc()
-	}
-	
-	/// Computes the absolute value of `self`. Returns NaN if the number is NaN.
-	#[inline]
-	pub fn abs(self) -> r32 {
-		// TODO needs checked version
-		r32::new(self.numer().abs(), self.denom())
-	}
-	
-	/// Returns a number that represents the sign of `self`.
-	/// 
-	/// * `1` if the number is positive
-	/// * `-1` if the number is negative
-	/// * `0` if the number is `+0`, `-0`, or `NaN`
-	pub fn signum(self) -> r32 {
-		r32::new(self.numer().signum(), 1)
-	}
-	
-	/// Raises a number to an integer power.
-	/// 
-	/// # Panics
-	/// 
-	/// Panics on overflow.
-	#[cfg(not(feature = "quiet-nan"))]
-	#[inline]
-	pub fn pow(self, exp: i32) -> r32 {
-		self.checked_pow(exp).expect("attempt to multiply with overflow")
-	}
-	
-	/// Raises a number to an integer power.
-	/// 
-	/// Returns NaN on overflow.
-	#[cfg(feature = "quiet-nan")]
-	#[inline]
-	pub fn pow(self, exp: i32) -> r32 {
-		self.checked_pow(exp).unwrap_or(r32::NAN)
 	}
 	
 	/// Calculates the approximate square root of the value.
 	/// 
-	/// **Warning**: This method can give a value that overflows easily. Use
-	/// with caution, and discard as soon as you're done with it.
-	fn sqrt(self) -> r32 {
-		// TODO: If `self` is positive, this should approximate its square root
-		// by calculating a repeated fraction for a fixed number of steps.
+	/// **Warning**: This method can give a number that overflows easily, so
+	/// use it with caution, and discard it as soon as you're done with it.
+	#[inline]
+	pub fn sqrt(self) -> r32 {
+		// shh...
 		let f: f32 = self.into();
 		r32::from(f.sqrt())
+		// we should test to make sure that roundtrip calculations give the
+		// same value...
 	}
 	
 	/// Calculates the approximate cube root of the value.
 	/// 
-	/// **Warning**: This method can give a value that overflows easily. Use
-	/// with caution, and discard as soon as you're done with it.
-	fn cbrt(self) -> r32 {
-		todo!()
-	}
-	
-	/// Returns `true` if this value is `NaN` and `false` otherwise.
+	/// **Warning**: This method can give a number that overflows easily, so
+	/// use it with caution, and discard it as soon as you're done with it.
 	#[inline]
-	pub fn is_nan(self) -> bool {
-		self.denom_size() >= FRACTION_SIZE
+	pub fn cbrt(self) -> r32 {
+		let f: f32 = self.into();
+		r32::from(f.cbrt())
 	}
 	
-	/// Returns `true` if the number is neither zero, denormal, or `NaN`.
-	#[inline]
-	fn is_normal(self) -> bool {
-		self.numer() != 0
-		&& self.denom_size() < FRACTION_SIZE
-	}
-	
-	/// Returns `true` if `self` is positive and `false` if the number is zero,
-	/// negative, or `NaN`.
-	#[inline]
-	pub fn is_positive(self) -> bool {
-		!self.is_nan()
-		&& self.numer().is_positive()
-	}
-	
-	/// Returns `true` if `self` is negative and `false` if the number is zero,
-	/// positive, or `NaN`.
-	#[inline]
-	pub fn is_negative(self) -> bool {
-		!self.is_nan()
-		&& self.numer().is_negative()
-	}
-	
-	/// Takes the reciprocal (inverse) of a number, `1/x`.
-	/// 
-	/// # Panics
-	/// 
-	/// Panics when trying to set a numerator of zero as the denominator.
-	#[cfg(not(feature = "quiet-nan"))]
-	#[inline]
-	pub fn recip(self) -> r32 {
-		self.checked_recip().expect("attempt to divide by zero")
-	}
-	
-	/// Takes the reciprocal (inverse) of a number, `1/x`.
-	///
-	/// If the numerator is zero, this will return `NaN`.
-	#[cfg(feature = "quiet-nan")]
-	#[inline]
-	pub fn recip(self) -> r32 {
-		self.checked_recip().unwrap_or(r32::NAN)
-	}
-	
-	/// Returns the maximum of the two numbers.
-	/// 
-	/// If one of the arguments is `NaN`, then the other argument is returned.
-	pub fn max(self, other: r32) -> r32 {
-		match (self.is_nan(), other.is_nan()) {
-			// this clobbers any "payload" bits being used.
-			(true, true)   => r32::NAN,
-			(true, false)  => self,
-			(false, true)  => other,
-			(false, false) => match self.partial_cmp(&other).unwrap() {
-				Ordering::Less => other,
-				// return self by default
-				_ => self
-			}
-		}
-	}
-	
-	/// Returns the minimum of the two numbers.
-	/// 
-	/// If one of the arguments is `NaN`, then the other argument is returned.
-	pub fn min(self, other: r32) -> r32 {
-		match (self.is_nan(), other.is_nan()) {
-			// this clobbers any "payload" bits being used.
-			(true, true)   => r32::NAN,
-			(true, false)  => self,
-			(false, true)  => other,
-			(false, false) => match self.partial_cmp(&other).unwrap() {
-				Ordering::Greater => other,
-				// return self by default
-				_ => self
-			}
-		}
-	}
-	
-	/// Cancels out common factors between the numerator and the denominator.
-	pub fn normalize(self) -> r32 {
-		if self.is_nan() {
-			return self;
-		}
-		
-		if self.numer() == 0 {
-			return r32(0);
-		}
-		
-		let n = self.numer();
-		let d = self.denom();
-		
-		// cancel out common factors by dividing numerator and denominator by
-		// their greatest common divisor.
-		let gcd = n.unsigned_abs().gcd(d);
-		r32::new(n / (gcd as i32), d / gcd)
-	}
-	
-	// BEGIN related integer stuff
-	
-	/// Checked rational addition. Computes `self + rhs`, returning `None` if
-	/// overflow occurred.
+	/// Checked addition. Computes `self + rhs`, returning `None` if overflow
+	/// occurred.
 	pub fn checked_add(self, rhs: r32) -> Option<r32> {
+		if self.is_nan() || rhs.is_nan() {
+			return Some(r32::NAN);
+		}
 		// self = a/b, other = c/d
 		
-		// TODO prove this won't panic/can't overflow.
 		// num = ad + bc
 		let mut num =
 			self.numer() as i64 * rhs.denom() as i64
@@ -329,21 +129,25 @@ impl r32 {
 		}
 		
 		if size <= FRACTION_SIZE {
-			Some(r32::new(num as i32, den as u32))
+			unsafe { Some(r32::new_unchecked(num as i32, den as u32)) }
 		} else {
 			None
 		}
 	}
 	
-	/// Checked rational subtraction. Computes `self - rhs`, returning `None` if
-	/// overflow occurred.
-	pub fn checked_sub(self, rhs: r32) -> Option<r32> {
-		self.checked_add(-rhs)
-	}
-	
-	/// Checked rational multiplication. Computes `self * rhs`, returning `None`
+	/// Checked multiplication. Computes `self * rhs`, returning `None`
 	/// if overflow occurred.
+	/// 
+	/// If one argument is NaN and the other is zero, this returns zero.
 	pub fn checked_mul(self, rhs: r32) -> Option<r32> {
+		match (self.is_nan(), rhs.is_nan()) {
+			(true, false) if rhs.numer() == 0 => return Some(r32(0)),
+			(false, true) if self.numer() == 0 => return Some(r32(0)),
+			(false, false) => {}
+			_ => return Some(r32::NAN),
+		}
+		
+		// a/b * c/d = ac/bd
 		let mut n = self.numer() as i64 * rhs.numer() as i64;
 		let mut d = self.denom() as u64 * rhs.denom() as u64;
 		
@@ -357,220 +161,28 @@ impl r32 {
 		}
 		
 		if size <= FRACTION_SIZE {
-			Some(r32::new(n as i32, d as u32))
+			unsafe { Some(r32::new_unchecked(n as i32, d as u32)) }
 		} else {
 			None
-		}
-	}
-	
-	/// Checked rational division. Computes `self / rhs`, returning `None` if
-	/// `rhs == 0` or the division results in overflow.
-	#[inline]
-	pub fn checked_div(self, rhs: r32) -> Option<r32> {
-		self.checked_mul(rhs.checked_recip()?)
-	}
-	
-	/// Checked rational remainder. Computes `self % rhs`, returning `None` if
-	/// `rhs == 0` or the division results in overflow.
-	#[doc(hidden)]
-	pub fn checked_rem(self, rhs: r32) -> Option<r32> {
-		let div = self.checked_div(rhs)?;
-		let diff = div.checked_sub(div.floor())?;
-		diff.checked_mul(rhs)
-	}
-	
-	/// Checked rational negation. Computes `-self`, returning `None` if the
-	/// numerator would overflow.
-	pub fn checked_recip(self) -> Option<r32> {
-		if self.numer() == 0 {
-			None
-		} else {
-			let mut denom = self.denom() as i32;
-			if self.is_negative() { denom = -denom }
-			Some(r32::new(denom, self.numer().unsigned_abs()))
-		}
-		//assert!(self.denom_size() < FRACTION_SIZE, "subnormal overflow");
-	}
-	
-	/// Takes the *checked* square root of a number.
-	/// 
-	/// If `self` is positive and both the numerator and denominator are perfect
-	/// squares, this returns their square root. Otherwise, returns `None`.
-	pub fn checked_sqrt(self) -> Option<r32> {
-		if self.is_negative() {
-			return None;
-		}
-		
-		let n = self.numer().unsigned_abs().integer_sqrt() as i32;
-		let d = self.denom().integer_sqrt();
-
-		if self.numer() == n * n && self.denom() == d * d {
-			Some(r32::new(n, d))
-		} else {
-			None
-		}
-	}
-	/*
-	/// Takes the cube root of a number.
-	/// 
-	/// If `self` is positive and its numerator and denominator are perfect
-	/// cubes, this returns their cube root. Otherwise, returns `None`.
-	pub fn checked_cbrt(self) -> Option<r32> {
-		let n = self.numer().integer_cbrt();
-		let d = self.denom().integer_cbrt();
-
-		if self.numer() == n * n * n && self.denom() == d * d * d {
-			Some(r32::new(n as i32, d))
-		} else {
-			None
-		}
-	}
-	*/
-	/// Raises a number to an integer power. Returns `None` on overflow.
-	pub fn checked_pow(self, exp: i32) -> Option<r32> {
-		let exp_is_neg = exp < 0;
-		let exp = exp.unsigned_abs();
-		
-		let num = self.numer().checked_pow(exp)?;
-		let den = self.denom().checked_pow(exp)?;
-		
-		let result = r32::new(num, den);
-		
-		if exp_is_neg {
-			result.checked_recip()
-		} else {
-			Some(result)
 		}
 	}
 	
 	/// Checked conversion to `i32`.
 	///
-	/// Returns the numeric value as an `i32` if the denominator is 1.
-	/// Otherwise, returns `None`.
+	/// Returns the numeric value as an `i32` if its irreducible form has a 
+	/// denominator of 1. Otherwise, returns `None`.
 	#[inline]
 	pub fn to_i32(self) -> Option<i32> {
-		if self.denom_size() == 0 {
-			Some(self.numer())
+		let norm = self.normalize();
+		if norm.denom_size() == 0 {
+			Some(norm.numer())
 		} else {
 			None
 		}
 	}
-	
-	// BEGIN bitwise representation stuff
-	
-	/// Raw transmutation to `u32`.
-	/// 
-	/// Useful if you need access to the payload bits of a NaN value.
-	#[inline]
-	pub fn to_bits(self) -> u32 { self.0 }
-	
-	/// Raw transmutation from `u32`.
-	#[inline]
-	pub fn from_bits(bits: u32) -> r32 { r32(bits) }
 }
 
-impl fmt::Display for r32 {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		if self.is_nan() {
-			return f.write_str("NaN");
-		}
-		
-		let norm = self.normalize();
-		
-		norm.numer().fmt(f)?;
-		
-		if norm.denom_size() > 0 {
-			write!(f, "/{}", norm.denom())?;
-		}
-		
-		Ok(())
-	}
-}
-
-impl fmt::Debug for r32 {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		if self.is_nan() {
-			f.write_str("NaN")
-		} else {
-			write!(f, "{}/{}", self.numer(), self.denom())
-		}
-	}
-}
-
-impl FromStr for r32 {
-	type Err = ParseRatioErr;
-	
-	/// Converts a string in base 10 to a rational.
-	/// 
-	/// This function accepts strings such as
-	/// 
-	/// * '157/50'
-	/// * '-157/50'
-	/// * '25', or equivalently, '25/1'
-	/// * 'NaN'
-	/// 
-	/// Leading and trailing whitespace represent an error.
-	/// 
-	/// # Return value
-	/// 
-	/// `Err(ParseRatioError)` if the string did not contain a valid rational
-	/// number. Otherwise, `Ok(n)` where `n` is the floating-bar number
-	/// represented by `src`.
-	fn from_str(src: &str) -> Result<Self, Self::Err> {
-		use core::num::NonZeroU32;
-		
-		if src.is_empty() {
-			return Err(ParseRatioErr::Empty);
-		}
-		
-		// special case NaN
-		if src == "NaN" {
-			return Ok(r32::NAN);
-		}
-		
-		// lookahead to find dividing bar, if any
-		let bar_pos = src.find('/');
-		let numer_end = bar_pos.unwrap_or(src.len());
-		
-		// parse numerator
-		let numerator = src[..numer_end]
-			.parse::<i32>()
-			.map_err(ParseRatioErr::Numerator)?;
-		
-		// parse optional denominator
-		let denominator = bar_pos
-			.map(|pos|
-				src[pos+1..]
-				.parse::<NonZeroU32>()
-				.map_err(ParseRatioErr::Denominator)
-			) // : Option<Result<u32, ParseRatioErr>>
-			.transpose()?
-			// : Option<u32>
-			.map(NonZeroU32::get)
-			.unwrap_or(1);
-		
-		// ensure parsed numbers fit in fraction field
-		let frac_size = r32::get_frac_size(
-			numerator as i64,
-			denominator as u64
-		);
-		
-		if frac_size > FRACTION_SIZE {
-			return Err(ParseRatioErr::Overflow);
-		}
-		
-		Ok(r32::new(numerator, denominator))
-	}
-}
-
-impl From<u8> for r32 {
-	#[inline]
-	fn from(v: u8) -> Self { r32(v as u32) }
-}
-
-impl From<i8> for r32 {
-	fn from(v: i8) -> Self { r32::new(v as i32, 1) }
-}
+crate::impl_ratio_type! { r32 u32 i32 NonZeroU32 }
 
 impl From<u16> for r32 {
 	#[inline]
@@ -578,11 +190,12 @@ impl From<u16> for r32 {
 }
 
 impl From<i16> for r32 {
-	fn from(v: i16) -> Self { r32::new(v as i32, 1) }
+	fn from(v: i16) -> Self {
+		unsafe { r32::new_unchecked(v as i32, 1) }
+	}
 }
 
 impl From<f32> for r32 {
-	/// Based on [John D. Cook's Best Rational Approximation post](https://www.johndcook.com/blog/2010/10/20/best-rational-approximation/)
 	fn from(mut f: f32) -> Self {
 		// why 13? bc it's fraction_size / 2
 		// div by 2 is to have enough space for both numer and denom.
@@ -630,49 +243,42 @@ impl From<f32> for r32 {
 			else     { (a, b) } // else, lower bound
 		};
 		
-		if is_neg {
-			r32::new(-result.0, result.1)
-		} else {
-			r32::new(result.0, result.1)
+		// SAFETY: values were given a maximum in which they could fit.
+		unsafe {
+			if is_neg {
+				r32::new_unchecked(-result.0, result.1)
+			} else {
+				r32::new_unchecked(result.0, result.1)
+			}
 		}
 	}
 }
 
-// TODO document wrt precision
 // TODO add TryFrom version
 impl From<r32> for f32 {
 	fn from(r: r32) -> f32 {
-		(r.numer() as f32) / (r.denom() as f32)
+		if r.is_nan() {
+			f32::NAN
+		} else {
+			(r.numer() as f32) / (r.denom() as f32)
+		}
 	}
 }
 
 impl From<r32> for f64 {
 	fn from(r: r32) -> f64 {
-		(r.numer() as f64) / (r.denom() as f64)
-	}
-}
-
-impl Neg for r32 {
-	type Output = r32;
-	
-	fn neg(self) -> Self::Output {
-		r32::new(-self.numer(), self.denom())
-	}
-}
-
-impl PartialEq for r32 {
-	fn eq(&self, other: &r32) -> bool {
-		self.is_nan() && other.is_nan()
-		|| self.numer() == 0 && other.numer() == 0
-		|| self.normalize().0 == other.normalize().0
+		if r.is_nan() {
+			f64::NAN
+		} else {
+			(r.numer() as f64) / (r.denom() as f64)
+		}
 	}
 }
 
 impl PartialOrd for r32 {
 	fn partial_cmp(&self, other: &r32) -> Option<Ordering> {
-		// both are nan or both are zero
-		if self.is_nan() && other.is_nan()
-		|| self.numer() == 0 && other.numer() == 0 {
+		// both are nan
+		if self.is_nan() && other.is_nan() {
 			return Some(Ordering::Equal);
 		}
 		
@@ -681,81 +287,12 @@ impl PartialOrd for r32 {
 			return None;
 		}
 		
-		// compare signs
-		self.is_positive()
-		.partial_cmp(&other.is_positive())
-		.map(|c| c.then(
+		Some(
 			// compare numbers
 			// a/b = c/d <=> ad = bc
-			// when a, b, c, and d are all > 0
 			(self.numer() as i64 * other.denom() as i64)
 			.cmp(&(self.denom() as i64 * other.numer() as i64))
-		))
-	}
-}
-
-impl Mul for r32 {
-	type Output = r32;
-	
-	fn mul(self, other: r32) -> r32 {
-		let result = self.checked_mul(other);
-		
-		if cfg!(feature = "quiet-nan") {
-			result.unwrap_or(r32::NAN)
-		} else {
-			result.expect("attempt to multiply with overflow")
-		}
-	}
-}
-
-impl Div for r32 {
-	type Output = r32;
-
-	fn div(self, other: r32) -> r32 {
-		let result = self.checked_div(other);
-		
-		if cfg!(feature = "quiet-nan") {
-			result.unwrap_or(r32::NAN)
-		} else {
-			result.expect("attempt to divide with overflow")
-		}
-	}
-}
-
-impl Add for r32 {
-	type Output = r32;
-	
-	fn add(self, other: r32) -> r32 {
-		let result = self.checked_add(other);
-		
-		if cfg!(feature = "quiet-nan") {
-			result.unwrap_or(r32::NAN)
-		} else {
-			result.expect("attempt to add with overflow")
-		}
-	}
-}
-
-impl Sub for r32 {
-	type Output = r32;
-
-	fn sub(self, other: r32) -> r32 {
-		let result = self.checked_sub(other);
-		
-		if cfg!(feature = "quiet-nan") {
-			result.unwrap_or(r32::NAN)
-		} else {
-			result.expect("attempt to subtract with overflow")
-		}
-	}
-}
-
-#[doc(hidden)]
-impl Rem for r32 {
-	type Output = r32;
-	
-	fn rem(self, other: r32) -> r32 {
-		todo!()
+		)
 	}
 }
 
@@ -763,112 +300,138 @@ impl Rem for r32 {
 mod tests {
 	#[cfg(feature = "bench")]
 	extern crate test;
-	
-	use super::*;
-	
-	#[test]
-	fn normalize() {
-		assert_eq!(r32::new(4, 2).normalize(), r32::new(2, 1));
-		assert_eq!(r32::new(-4, 2).normalize(), r32::new(-2, 1));
-	}
-	
-	#[test]
-	fn neg() {
-		assert_eq!(-r32(0), r32(0));
-		assert_eq!(-r32(1), r32::new(-1, 1));
-		assert_eq!(-r32::new(-1, 1), r32(1));
-	}
-	
-	#[test]
-	fn signum() {
-		assert_eq!(r32(0).signum(), r32(0));
-		assert_eq!(r32(1).signum(), r32(1));
-		assert_eq!(r32(2).signum(), r32(1));
-		assert_eq!(r32::new(-1, 1).signum(), r32::new(-1, 1));
-		assert_eq!(r32::new(-2, 1).signum(), r32::new(-1, 1));
-	}
 
-	#[test]
-	fn pow() {
-		assert_eq!(r32(0).pow(0),   r32(1));
-		assert_eq!(r32::NAN.pow(0), r32(1));
-		assert_eq!(r32(1).pow(1),   r32(1));
-		
-		assert_eq!(r32(3).pow(2),           r32(9));
-		assert_eq!(r32(3).pow(-2),          r32::new(1, 9));
-		assert_eq!(r32::new(-3, 1).pow(2),  r32(9));
-		assert_eq!(r32::new(-3, 1).pow(-2), r32::new(1, 9));
-		
-		assert_eq!(r32(2).pow(3),          r32(8));
-		assert_eq!(r32(2).pow(-3),         r32::new(1, 8));
-		assert_eq!(r32::new(1, 2).pow(3),  r32::new(1, 8));
-		assert_eq!(r32::new(1, 2).pow(-3), r32(8));
-		
-		assert_eq!(r32::new(-2, 1).pow(3),  r32::new(-8, 1));
-		assert_eq!(r32::new(-2, 1).pow(-3), r32::new(-1, 8));
-		assert_eq!(r32::new(-1, 2).pow(3),  r32::new(-1, 8));
-		assert_eq!(r32::new(-1, 2).pow(-3), r32::new(-8, 1));
-	}
+	use super::*;
+	use crate::r32;
 
 	#[test]
 	fn checked_pow() {
 		assert_eq!(r32(3).checked_pow(30), None);
 	}
-
+	
 	#[test]
-	fn checked_sqrt() {
-		assert_eq!(r32(0).checked_sqrt(), Some(r32(0)));
-		assert_eq!(r32(1).checked_sqrt(), Some(r32(1)));
-		assert_eq!(r32(2).checked_sqrt(), None);
-		assert_eq!(r32(4).checked_sqrt(), Some(r32(2)));
-	}
-
-	#[test]
-	fn floor() {
-		assert_eq!(r32(1).floor(), r32(1));
-		assert_eq!((-r32(1)).floor(), r32::new(-1, 1));
-		assert_eq!((r32(3) / r32(2)).floor(), r32(1));
-		assert_eq!((-r32(3) / r32(2)).floor(), r32::new(-2, 1));
-	}
-
-	#[test]
-	fn ceil() {
-		assert_eq!(r32(1).ceil(),             r32(1));
-		assert_eq!((-r32(1)).ceil(),          r32::new(-1, 1));
-		assert_eq!((r32(3) / r32(2)).ceil(),  r32(2));
-		assert_eq!((-r32(3) / r32(2)).ceil(), r32::new(-1, 1));
-	}
-
-	#[test]
-	fn round() {
-		assert_eq!(r32(1).round(),             r32(1));
-		assert_eq!((-r32(1)).round(),          r32::new(-1, 1));
-		assert_eq!((r32(3) / r32(2)).round(),  r32(2));
-		assert_eq!((-r32(3) / r32(2)).round(), r32::new(-2, 1));
+	fn trunc() {
+		assert_eq!(r32::NAN.trunc(), r32::NAN);
+		
+		assert_eq!(r32(5).trunc(),     r32(5));
+		assert_eq!(r32!( 1/2).trunc(), r32(0));
+		assert_eq!(r32!(-1/2).trunc(), r32(0));
+		assert_eq!(r32!( 3/2).trunc(), r32(1));
+		assert_eq!(r32!(-3/2).trunc(), r32!(-1));
 	}
 	
 	#[test]
 	fn fract() {
-		assert_eq!(r32(5).fract(),          r32(0));
-		assert_eq!(r32::new(3, 2).fract(),  r32::new(1, 2));
-		assert_eq!(r32::new(-3, 2).fract(), r32::new(-1, 2));
+		assert_eq!(r32::NAN.fract(), r32::NAN);
+		
+		assert_eq!(r32(5).fract(),     r32(0));
+		assert_eq!(r32!( 3/2).fract(), r32!( 1/2));
+		assert_eq!(r32!(-3/2).fract(), r32!(-1/2));
+	}
+
+	#[test]
+	fn floor() {
+		assert_eq!(r32::NAN.floor(), r32::NAN);
+		
+		assert_eq!(r32(1).floor(),     r32(1));
+		assert_eq!(r32!(-1).floor(),   r32!(-1));
+		assert_eq!(r32!( 3/2).floor(), r32(1));
+		assert_eq!(r32!(-3/2).floor(), r32!(-2));
+	}
+
+	#[test]
+	fn ceil() {
+		assert_eq!(r32::NAN.ceil(), r32::NAN);
+		
+		assert_eq!(r32(1).ceil(),     r32(1));
+		assert_eq!(r32!(-1).ceil(),   r32!(-1));
+		assert_eq!(r32!( 3/2).ceil(), r32(2));
+		assert_eq!(r32!(-3/2).ceil(), r32!(-1));
+	}
+
+	#[test]
+	fn round() {
+		assert_eq!(r32::NAN.round(), r32::NAN);
+		
+		assert_eq!(r32(1).round(),     r32(1));
+		assert_eq!(r32!(-1).round(),   r32!(-1));
+		assert_eq!(r32!( 3/2).round(), r32(2));
+		assert_eq!(r32!(-3/2).round(), r32!(-2));
 	}
 	
 	#[test]
-	fn trunc() {
-		assert_eq!(r32(5).trunc(),          r32(5));
-		assert_eq!(r32::new(1, 2).trunc(),  r32(0));
-		assert_eq!(r32::new(-1, 2).trunc(), r32(0));
-		assert_eq!(r32::new(3, 2).trunc(),  r32(1));
-		assert_eq!(r32::new(-3, 2).trunc(), r32::new(-1, 1));
+	fn min() {
+		assert_eq!(r32::NAN.min(r32::NAN), r32::NAN);
+		assert_eq!(r32::NAN.min(r32(0)),   r32(0));
+		assert_eq!(r32(0).min(r32::NAN),   r32(0));
+		assert_eq!(r32(0).min(r32(1)),     r32(0));
+	}
+	
+	#[test]
+	fn max() {
+		assert_eq!(r32::NAN.max(r32::NAN), r32::NAN);
+		assert_eq!(r32::NAN.max(r32(0)),   r32(0));
+		assert_eq!(r32(0).max(r32::NAN),   r32(0));
+		assert_eq!(r32(0).max(r32(1)),     r32(1));
+	}
+	
+	#[test]
+	fn abs() {
+		assert_eq!(r32::NAN.abs(), r32::NAN);
+		assert_eq!(r32(0).abs(), r32(0));
+		assert_eq!(r32(1).abs(), r32(1));
+		
+		assert_eq!(r32!(-1).abs(), r32(1));
+	}
+	
+	#[test]
+	fn signum() {
+		assert_eq!(r32::NAN.signum(), r32::NAN);
+		
+		assert_eq!(r32(0).signum(), r32(0));
+		assert_eq!(r32(1).signum(), r32(1));
+		assert_eq!(r32(2).signum(), r32(1));
+		
+		assert_eq!(r32!(-1).signum(), r32!(-1));
+		assert_eq!(r32!(-2).signum(), r32!(-1));
 	}
 	
 	#[test]
 	fn recip() {
-		//println!("{:b}", r32(5));
-		assert_eq!(r32(5).recip(), r32::new(1, 5));
-		assert_eq!(r32::new(5, 2).recip(), r32::new(2, 5));
+		assert_eq!(r32::NAN.recip(), r32::NAN);
+		
+		assert_eq!(r32(5).recip(), r32!(1/5));
+		assert_eq!(r32!(5/2).recip(), r32!(2/5));
 		assert_eq!(r32(1).recip(), r32(1));
+	}
+	
+	#[test]
+	fn normalize() {
+		assert_eq!(r32!( 4 / 2).normalize(), r32!( 2));
+		assert_eq!(r32!(-4 / 2).normalize(), r32!(-2));
+	}
+
+	#[test]
+	fn pow() {
+		assert_eq!( r32::NAN.pow(0), r32(1) );
+		
+		assert_eq!( r32(0).pow(0),   r32(1) );
+		assert_eq!( r32(1).pow(1),   r32(1) );
+		
+		assert_eq!( r32(3).pow( 2),   r32(9)    );
+		assert_eq!( r32(3).pow(-2),   r32!(1/9) );
+		assert_eq!( r32!(-3).pow( 2), r32(9)    );
+		assert_eq!( r32!(-3).pow(-2), r32!(1/9) );
+		
+		assert_eq!( r32(2).pow( 3),    r32(8)    );
+		assert_eq!( r32(2).pow(-3),    r32!(1/8) );
+		assert_eq!( r32!(1/2).pow( 3), r32!(1/8) );
+		assert_eq!( r32!(1/2).pow(-3), r32(8)    );
+		
+		assert_eq!( r32!(-2).pow( 3),   r32!(-8)   );
+		assert_eq!( r32!(-2).pow(-3),   r32!(-1/8) );
+		assert_eq!( r32!(-1/2).pow( 3), r32!(-1/8) );
+		assert_eq!( r32!(-1/2).pow(-3), r32!(-8)   );
 	}
 	
 	#[test]
@@ -884,6 +447,38 @@ mod tests {
 	}
 	
 	#[test]
+	fn neg() {
+		assert_eq!(-r32!( 0), r32!( 0));
+		assert_eq!(-r32!( 1), r32!(-1));
+		assert_eq!(-r32!(-1), r32!( 1));
+	}
+	
+	#[test]
+	fn checked_neg() {
+		assert_eq!(r32!(-1/67108864).checked_neg(), None);
+	}
+	
+	#[test]
+	fn add() {
+		assert_eq!(r32(0) + r32(0), r32(0));
+		
+		assert_eq!(r32(1) + r32(1), r32(2));
+		assert_eq!(r32(1) + r32!(-1), r32(0));
+		assert_eq!(r32!(-1) + r32(1), r32(0));
+		assert_eq!(r32!(-1) + r32!(-1), r32!(-2));
+		
+		assert_eq!(r32(2)     + r32(2),     r32(4));
+		assert_eq!(r32!(1/2)  + r32!(3/4),  r32!(5/4));
+		assert_eq!(r32!(1/2)  + r32!(-3/4), r32!(-1/4));
+		assert_eq!(r32!(-1/2) + r32!(3/4),  r32!(1/4));
+	}
+	
+	#[test] #[should_panic]
+	fn add_invalid() {
+		let _ = r32(1 << FRACTION_SIZE - 1) + r32(1 << FRACTION_SIZE - 1);
+	}
+	
+	#[test]
 	fn mul() {
 		assert_eq!(r32(0) * r32(0), r32(0));
 		
@@ -891,28 +486,24 @@ mod tests {
 		assert_eq!(r32(1) * r32(0), r32(0));
 		assert_eq!(r32(1) * r32(1), r32(1));
 		
-		assert_eq!(-r32(1) * r32(1), -r32(1));
-		assert_eq!(r32(1) * -r32(1), -r32(1));
-		assert_eq!(-r32(1) * -r32(1), r32(1));
+		assert_eq!(-r32(1) *  r32(1), -r32(1));
+		assert_eq!( r32(1) * -r32(1), -r32(1));
+		assert_eq!(-r32(1) * -r32(1),  r32(1));
 		
 		assert_eq!(r32(1) * r32(2), r32(2));
 		assert_eq!(r32(2) * r32(2), r32(4));
 		
 		assert_eq!(
-			r32::new(1, 2) * r32::new(1, 2),
-			r32::new(1, 4)
+			r32!(1/2) * r32!(1/2), r32!(1/4)
 		);
 		assert_eq!(
-			r32::new(-1, 2) * r32::new(1, 2),
-			r32::new(-1, 4)
+			r32!(-1/2) * r32!(1/2), r32!(-1/4)
 		);
 		assert_eq!(
-			r32::new(2, 3) * r32::new(2, 3),
-			r32::new(4, 9)
+			r32!(2/3) * r32!(2/3), r32!(4/9)
 		);
 		assert_eq!(
-			r32::new(3, 2) * r32::new(2, 3),
-			r32(1)
+			r32!(3/2) * r32!(2/3), r32(1)
 		);
 	}
 	
@@ -927,11 +518,11 @@ mod tests {
 		assert_eq!(r32(0) / r32(2), r32(0));
 		assert_eq!(r32(1) / r32(1), r32(1));
 		
-		assert_eq!(-r32(1) / r32(1), -r32(1));
-		assert_eq!(r32(1) / -r32(1), -r32(1));
-		assert_eq!(-r32(1) / -r32(1), r32(1));
+		assert_eq!(-r32(1) /  r32(1), -r32(1));
+		assert_eq!( r32(1) / -r32(1), -r32(1));
+		assert_eq!(-r32(1) / -r32(1),  r32(1));
 		
-		assert_eq!(r32(1) / r32(2), r32::new(1, 2));
+		assert_eq!(r32(1) / r32(2), r32!(1/2));
 		assert_eq!(r32(2) / r32(1), r32(2));
 		assert_eq!(r32(2) / r32(2), r32(1));
 	}
@@ -941,53 +532,25 @@ mod tests {
 		assert_eq!(r32(5) % r32(2), r32(1));
 		assert_eq!(r32(6) % r32(2), r32(0));
 		assert_eq!(r32(8) % (r32(3) / r32(2)), r32(1) / r32(2));
-		// Rust modulus gives same sign as dividend, and so do we
-		assert_eq!(-r32(5) % r32(2), -r32(1));
-		assert_eq!(r32(5) % -r32(2), r32(1));
+		
+		// always returns sign of divisor (2nd number)
+		assert_eq!(-r32(5) %  r32(2),  r32(1));
+		assert_eq!( r32(5) % -r32(2), -r32(1));
 		assert_eq!(-r32(5) % -r32(2), -r32(1));
 	}
 	
 	#[test]
-	fn add() {
-		assert_eq!(r32(0) + r32(0), r32(0));
-		assert_eq!(-r32(0) + r32(0), r32(0));
-		
-		assert_eq!(r32(1) + r32(1), r32(2));
-		assert_eq!(r32(1) + -r32(1), r32(0));
-		assert_eq!(-r32(1) + r32(1), r32(0));
-		assert_eq!(-r32(1) + -r32(1), -r32(2));
-		
-		assert_eq!(r32(2) + r32(2), r32(4));
-		assert_eq!(
-			r32::new(1, 2) + r32::new(3, 4),
-			r32::new(5, 4)
-		);
-		assert_eq!(
-			r32::new(1, 2) + r32::new(-3, 4),
-			r32::new(-1, 4)
-		);
-		assert_eq!(
-			r32::new(-1, 2) + r32::new(3, 4),
-			r32::new(1, 4)
-		);
-	}
-	
-	#[test] #[should_panic]
-	fn add_invalid() {
-		let _ = r32(1 << FRACTION_SIZE - 1) + r32(1 << FRACTION_SIZE - 1);
-	}
-	
-	#[test]
 	fn from_str() {
-		assert_eq!("0".parse::<r32>().unwrap(), r32(0));
-		assert_eq!("1".parse::<r32>().unwrap(), r32(1));
-		assert_eq!("+1".parse::<r32>().unwrap(), r32(1));
-		assert_eq!("-1".parse::<r32>().unwrap(), r32::new(-1, 1));
-		assert_eq!("1/1".parse::<r32>().unwrap(), r32::new(1, 1));
+		assert_eq!("NaN".parse::<r32>().unwrap(), r32::NAN);
+		assert_eq!("0".parse::<r32>().unwrap(),   r32(0));
+		assert_eq!("1".parse::<r32>().unwrap(),   r32(1));
+		assert_eq!("+1".parse::<r32>().unwrap(),  r32(1));
+		assert_eq!("-1".parse::<r32>().unwrap(),  r32!(-1));
+		assert_eq!("1/1".parse::<r32>().unwrap(), r32(1));
 	}
 	
 	#[test] #[should_panic]
-	fn from_str_fail() {
+	fn from_str_invalid() {
 		"1/-1".parse::<r32>().unwrap();
 		"/1".parse::<r32>().unwrap();
 		"1/".parse::<r32>().unwrap();
@@ -1001,20 +564,7 @@ mod tests {
 		assert_eq!(r32::from(-1.0), -r32(1));
 		assert_eq!(r32::from(0.2), r32(1) / r32(5));
 		assert_eq!(r32::from(1.0 - 0.7), r32(3) / r32(10));
-		assert_eq!(r32::from(std::f32::consts::E), r32(2721) / r32(1001));
-		assert_eq!(r32::from(std::f32::consts::TAU), r32(710) / r32(113));
-	}
-	
-	#[test]
-	fn debug() {
-		assert_eq!(format!("{:?}", r32::NAN), "NaN");
-		assert_eq!(format!("{:?}", r32::new(0, 1)), "0/1");
-	}
-	
-	#[test]
-	fn display() {
-		assert_eq!(format!("{}", r32::NAN), "NaN");
-		assert_eq!(format!("{}", r32::new(0, 1)), "0");
-		assert_eq!(format!("{}", r32::new(-3, 2)), "-3/2");
+		//assert_eq!(r32::from(std::f32::consts::E), r32(15062) / r32(5541));
+		//assert_eq!(r32::from(std::f32::consts::TAU), r32(710) / r32(113));
 	}
 }
