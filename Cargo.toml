@@ -27,9 +27,17 @@ std = []
 bench = []
 
 [[bench]]
-name = "r32_bench"
+name = "r32_add"
 harness = false
 
 [[bench]]
-name = "r64_bench"
+name = "r32_mul"
+harness = false
+
+[[bench]]
+name = "r64_add"
+harness = false
+
+[[bench]]
+name = "r64_mul"
 harness = false
