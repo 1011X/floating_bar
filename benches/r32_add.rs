@@ -10,6 +10,7 @@ use floating_bar::r32;
 criterion_group!(
 	benches, 
 	i32_addition,
+	f32_addition,
 	r32_addition,
 );
 criterion_main!(benches);
@@ -30,7 +31,7 @@ fn f32_addition(c: &mut Criterion) {
 	for i in 0_i32..1000 {
 		floats.push(i as f32);
 	}
-	c.bench_function("i32_add 1000", |b| b.iter(|| {
+	c.bench_function("f32_add 1000", |b| b.iter(|| {
 		floats.iter().fold(black_box(0.0), |a, b| a + *b)
 	}));
 }

@@ -8,7 +8,8 @@ use criterion::{
 use floating_bar::r64;
 
 criterion_group!(
-	benches, 
+	benches,
+	i64_multiplication,
 	f64_multiplication,
 	r64_multiplication
 );
@@ -20,7 +21,7 @@ fn i64_multiplication(c: &mut Criterion) {
 	for i in 0_i32..1000 {
 		ints.push(i);
 	}
-	c.bench_function("r64_mult 1000", |b| b.iter(|| {
+	c.bench_function("i64_mult 1000", |b| b.iter(|| {
 		ints.iter().fold(black_box(1), |a, &b| a * b)
 	}));
 }

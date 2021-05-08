@@ -8,12 +8,23 @@ use criterion::{
 use floating_bar::r64;
 
 criterion_group!(
-	benches, 
+	benches,
+	i64_addition,
 	f64_addition,
 	r64_addition,
 );
 criterion_main!(benches);
 
+
+fn i64_addition(c: &mut Criterion) {
+	let mut ints = Vec::new();
+	for i in 0_i64..1000 {
+		ints.push(i);
+	}
+	c.bench_function("i64_add 1000", |b| b.iter(|| {
+		ints.iter().fold(black_box(0), |a, b| a + *b)
+	}));
+}
 
 fn f64_addition(c: &mut Criterion) {
 	let mut floats = Vec::new();
@@ -31,6 +42,6 @@ fn r64_addition(c: &mut Criterion) {
 		ratios.push(r64::from(i));
 	}
 	c.bench_function("r64_add 1000", |b| b.iter(|| {
-		ratios.iter().fold(black_box(r64::new(0, 1)), |a, b| a + *b)
+		ratios.iter().fold(black_box(r64!(0)), |a, b| a + *b)
 	}));
 }

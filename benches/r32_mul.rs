@@ -10,6 +10,7 @@ use floating_bar::r32;
 criterion_group!(
 	benches, 
 	i32_multiplication,
+	f32_multiplication,
 	r32_multiplication
 );
 criterion_main!(benches);
@@ -22,6 +23,16 @@ fn i32_multiplication(c: &mut Criterion) {
 	}
 	c.bench_function("i32_mult 1000", |b| b.iter(|| {
 		ints.iter().fold(black_box(1), |a, &b| a * b)
+	}));
+}
+
+fn f32_multiplication(c: &mut Criterion) {
+	let mut floats = Vec::new();
+	for i in 0_i32..1000 {
+		floats.push(i as f32);
+	}
+	c.bench_function("f32_mult 1000", |b| b.iter(|| {
+		floats.iter().fold(black_box(1.0), |a, &b| a * b)
 	}));
 }
 
