@@ -39,15 +39,15 @@ field of zero has an implicit denominator value of 1.
 
 ## Value space
 
-There are three distinct categories that a floating-bar number can fall into:
-normal, reducible, and not-a-number (also known as NaNs).
+There are three categories that a floating-bar number can fall into: normal,
+reducible, and not-a-number (also known as NaNs).
 
-**NaN** values are those with a denominator size greater than or equal to the
-size of the entire fraction field. The library mostly ignores these values, and
-only uses one particular value to provide a `NAN` constant. They can be used to
-store payloads if desired using the `.to_bits()` and `from_bits()` methods.
-Effort is put into not clobbering possible payload values, but no guarantees are
-made.
+**NaN** values are those with an overly large denominator size as to leave no
+room for the numerator. The library mostly ignores these values, and only uses
+one particular value to provide a `NAN` constant. They can be used to store
+payloads if desired using the `.to_bits()` and `from_bits()` methods. Effort is
+put into not clobbering possible payload values during calculations, but no
+guarantees are made.
 
 **Reducible** values are those where the numerator and denominator share some
 common factor that has not been canceled out, and thus take up more space than
@@ -154,6 +154,10 @@ impl std::error::Error for ParseRatioErr {
 	}
 }
 
+/// The error type returned when a checked rational type conversion fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TryFromRatioError;
+
 /// Convenience macro for `r32` literals.
 #[macro_export]
 macro_rules! r32 {
@@ -174,332 +178,8 @@ macro_rules! r64 {
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! impl_ratio_type {
+macro_rules! impl_ratio_traits {
 	($name:ident $uint:ident $int:ident $nzuint:ident) => {
-	
-impl $name {
-	/// The highest value that can be represented by this rational type.
-	pub const MAX: $name = $name(1 << (FRACTION_SIZE - 1));
-	
-	/// The lowest value that can be represented by this rational type.
-	pub const MIN: $name = $name(1 << FRACTION_SIZE);
-	
-	/// The smallest positive value that can be represented by this rational
-	/// type.
-	pub const MIN_POSITIVE: $name = $name(FRACTION_SIZE << FRACTION_SIZE | FRACTION_FIELD);
-	
-	/// Not a Number (NaN).
-	pub const NAN: $name = $name($uint::MAX);
-	
-	#[inline]
-	fn denom_size(self) -> $uint {
-		self.0 >> FRACTION_SIZE
-	}
-	
-	#[inline]
-	fn denom_mask(self) -> $uint {
-		(1 << self.denom_size()) - 1
-	}
-	
-	#[inline]
-	fn numer_mask(self) -> $uint {
-		FRACTION_FIELD & !self.denom_mask()
-	}
-
-	/// Returns the numerator of this rational number. `self` cannot be NaN.
-	#[inline]
-	pub(crate) fn numer(self) -> $int {
-		// apparently this does sign-extension
-		(self.0 as $int)
-		.wrapping_shl(DSIZE_SIZE)
-		.wrapping_shr(DSIZE_SIZE + (self.denom_size() as u32))
-	}
-	
-	/// Returns the denominator of this rational number. `self` cannot be NaN.
-	#[inline]
-	pub(crate) fn denom(self) -> $uint {
-		1 << self.denom_size() | (self.0 & self.denom_mask())
-	}
-	
-	/// Returns `true` if this value is `NAN` and `false` otherwise.
-	#[inline]
-	pub fn is_nan(self) -> bool {
-		self.denom_size() >= FRACTION_SIZE
-	}
-
-	/// Returns `true` if `self` is positive and `false` if the number is zero,
-	/// negative, or `NAN`.
-	#[inline]
-	pub fn is_positive(self) -> bool {
-		!self.is_nan() && self.numer().is_positive()
-	}
-
-	/// Returns `true` if `self` is negative and `false` if the number is zero,
-	/// positive, or `NAN`.
-	#[inline]
-	pub fn is_negative(self) -> bool {
-		!self.is_nan() && self.numer().is_negative()
-	}
-	
-	/// Returns the integer part of a number, or NaN if `self` is NaN.
-	#[inline]
-	pub fn trunc(self) -> $name {
-		if self.is_nan() { return self }
-		
-		let numer = self.numer() / (self.denom() as $int);
-		// the `& FRACTION_FIELD` is for negative results.
-		$name((numer as $uint) & FRACTION_FIELD)
-	}
-	
-	/// Returns the fractional part of a number, or NaN if `self` is NaN.
-	#[inline]
-	pub fn fract(self) -> $name {
-		if self.is_nan() { return self }
-		
-		let numer = (self.numer() % (self.denom() as $int)) as $uint;
-		// we can do this because all of self's bits will stay the same, apart
-		// from the numerator.
-		$name(
-			self.0 & !self.numer_mask()
-			| (numer << self.denom_size()) & FRACTION_FIELD
-		)
-	}
-	
-	/// Returns the largest integer less than or equal to a number.
-	pub fn floor(self) -> $name {
-		if self.is_negative() {
-			// if self is a whole number,
-			if self.numer() % (self.denom() as $int) == 0 {
-				self
-			} else {
-				self.trunc() - $name(1)
-			}
-		} else {
-			self.trunc()
-		}
-	}
-	
-	/// Returns the smallest integer greater than or equal to a number.
-	pub fn ceil(self) -> $name {
-		if self.is_positive() {
-			// if self is a whole number,
-			if self.numer() % (self.denom() as $int) == 0 {
-				self
-			} else {
-				self.trunc() + $name(1)
-			}
-		} else {
-			self.trunc()
-		}
-	}
-	
-	/// Returns the nearest integer to a number. Round half-way cases away from
-	/// zero.
-	pub fn round(self) -> $name {
-		if self.is_negative() {
-			unsafe { self - $name::new_unchecked(1, 2) }
-		} else if self.is_positive() {
-			unsafe { self + $name::new_unchecked(1, 2) }
-		} else {
-			self
-		}
-		.trunc()
-	}
-	
-	/// Computes the absolute value of `self`.
-	#[inline]
-	pub fn abs(self) -> $name {
-		if self.is_negative() {
-			-self
-		} else {
-			self
-		}
-	}
-	
-	/// Returns a number that represents the sign of `self`.
-	/// 
-	/// * `1` if the number is positive
-	/// * `-1` if the number is negative
-	/// * `0` if the number is `0`
-	/// * `NAN` if the number is `NAN`.
-	#[inline]
-	pub fn signum(self) -> $name {
-		if self.is_nan() {
-			self
-		} else if self.is_negative() {
-			unsafe { $name::new_unchecked(-1, 1) }
-		} else if self.is_positive() {
-			$name(1)
-		} else {
-			$name(0)
-		}
-	}
-	
-	/// Takes the reciprocal (inverse) of a number, `1/x`.
-	/// 
-	/// # Panics
-	/// 
-	/// Panics when the numerator is zero.
-	#[inline]
-	pub fn recip(self) -> $name {
-		self.checked_recip().expect("attempt to divide by zero")
-	}
-	
-	/// Cancels out common factors between the numerator and the denominator.
-	pub fn normalize(self) -> $name {
-		if self.is_nan() { return self }
-		
-		if self.numer() == 0 {
-			return $name(0);
-		}
-		
-		let n = self.numer();
-		let d = self.denom();
-		
-		// cancel out common factors by dividing numerator and denominator by
-		// their greatest common divisor.
-		let gcd = n.unsigned_abs().gcd(d);
-		unsafe { $name::new_unchecked(n / (gcd as $int), d / gcd) }
-	}
-	
-	/// Checked exponentiation. Computes `self.pow(exp)`, returning `None` if
-	/// overflow occurred.
-	pub fn pow(self, exp: i32) -> $name {
-		if exp == 0 { return $name(1) }
-		if self.is_nan() { return self }
-		
-		let exp_is_neg = exp < 0;
-		let exp = exp.unsigned_abs();
-		
-		let num = self.numer().pow(exp);
-		let den = self.denom().pow(exp);
-		
-		if exp_is_neg {
-			$name::new(num, den).map($name::recip)
-		} else {
-			$name::new(num, den)
-		}
-		.expect("attempt to multiply with overflow")
-	}
-	
-	/// Returns the maximum of the two numbers.
-	/// 
-	/// If one of the arguments is `NaN`, then the other argument is returned.
-	pub fn max(self, other: $name) -> $name {
-		match (self.is_nan(), other.is_nan()) {
-			// this clobbers any "payload" bits being used.
-			(true, true)   => $name::NAN,
-			(true, false)  => other,
-			(false, true)  => self,
-			(false, false) => match self.partial_cmp(&other).unwrap() {
-				Ordering::Less => other,
-				// return self by default
-				_ => self
-			}
-		}
-	}
-	
-	/// Returns the minimum of the two numbers.
-	/// 
-	/// If one of the arguments is `NaN`, then the other argument is returned.
-	pub fn min(self, other: $name) -> $name {
-		match (self.is_nan(), other.is_nan()) {
-			// this clobbers any "payload" bits being used.
-			(true, true)   => $name::NAN,
-			(true, false)  => other,
-			(false, true)  => self,
-			(false, false) => match self.partial_cmp(&other).unwrap() {
-				Ordering::Greater => other,
-				// return self by default
-				_ => self
-			}
-		}
-	}
-	
-	/// Checked rational negation. Computes `-self`, returning `None` if the
-	/// numerator would overflow.
-	#[inline]
-	pub fn checked_neg(self) -> Option<$name> {
-		if self.is_nan() { return Some(self) }
-		// yes, this is the simplest and quickest way.
-		$name::new(-self.numer(), self.denom())
-	}
-	
-	/// Checked absolute value. Computes `self.abs()`, returning `None` if the
-	/// numerator would overflow.
-	#[inline]
-	pub fn checked_abs(self) -> Option<$name> {
-		if self.is_negative() {
-			self.checked_neg()
-		} else {
-			Some(self)
-		}
-	}
-	
-	/// Checked reciprocal. Computes `1/self`, returning `None` if the
-	/// numerator is zero.
-	pub fn checked_recip(self) -> Option<$name> {
-		if self.is_nan() {
-			Some(self)
-		} else if self.numer() == 0 {
-			None
-		} else {
-			let mut denom = self.denom() as $int;
-			if self.is_negative() { denom = -denom }
-			$name::new(denom, self.numer().unsigned_abs())
-		}
-	}
-	
-	/// Checked exponentiation. Computes `self.pow(exp)`, returning `None` if
-	/// overflow occurred.
-	pub fn checked_pow(self, exp: i32) -> Option<$name> {
-		if exp == 0 { return Some($name(1)) }
-		if self.is_nan() { return Some($name::NAN) }
-		
-		let exp_is_neg = exp < 0;
-		let exp = exp.unsigned_abs();
-		
-		let num = self.numer().checked_pow(exp)?;
-		let den = self.denom().checked_pow(exp)?;
-		
-		if exp_is_neg {
-			$name::new(num, den)?.checked_recip()
-		} else {
-			$name::new(num, den)
-		}
-	}
-	
-	/// Checked subtraction. Computes `self - rhs`, returning `None` if
-	/// overflow occurred.
-	pub fn checked_sub(self, rhs: $name) -> Option<$name> {
-		self.checked_add(rhs.checked_neg()?)
-	}
-	
-	/// Checked rational division. Computes `self / rhs`, returning `None` if
-	/// `rhs == 0` or the division results in overflow.
-	#[inline]
-	pub fn checked_div(self, rhs: $name) -> Option<$name> {
-		self.checked_mul(rhs.checked_recip()?)
-	}
-	
-	/// Checked rational remainder. Computes `self % rhs`, returning `None` if
-	/// `rhs == 0` or the division results in overflow.
-	#[inline]
-	pub fn checked_rem(self, rhs: $name) -> Option<$name> {
-		let div = self.checked_div(rhs)?;
-		div.checked_sub(div.floor())?.checked_mul(rhs)
-	}
-	
-	/// Raw transmutation to `u64`.
-	/// 
-	/// Useful if you need access to the payload bits of a NaN value.
-	#[inline]
-	pub fn to_bits(self) -> $uint { self.0 }
-	
-	/// Raw transmutation from `u64`.
-	#[inline]
-	pub fn from_bits(bits: $uint) -> $name { $name(bits) }
-}
 
 impl fmt::Display for $name {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -593,12 +273,15 @@ impl From<u8> for $name {
 }
 
 impl From<i8> for $name {
+	#[inline]
 	fn from(v: i8) -> Self {
+		// SAFETY: I assure you that a signed byte will fit.
 		unsafe { $name::new_unchecked(v as $int, 1) }
 	}
 }
 
 impl PartialEq for $name {
+	#[inline]
 	fn eq(&self, other: &$name) -> bool {
 		self.is_nan() && other.is_nan()
 		|| self.normalize().0 == other.normalize().0
@@ -608,6 +291,7 @@ impl PartialEq for $name {
 impl Neg for $name {
 	type Output = $name;
 	
+	#[inline]
 	fn neg(self) -> Self::Output {
 		self.checked_neg().expect("attempt to negate with overflow")
 	}
@@ -616,12 +300,56 @@ impl Neg for $name {
 impl Add for $name {
 	type Output = $name;
 	
-	fn add(self, other: $name) -> Self::Output {
-		self.checked_add(other).expect("attempt to add with overflow")
+	#[inline]
+	fn add(self, rhs: $name) -> Self::Output {
+		//self.checked_add(other).expect("attempt to add with overflow")
+		if self.is_nan() || rhs.is_nan() {
+			return $name::NAN;
+		}
+		
+		if self.denom_size() == 0 && rhs.denom_size() == 0 {
+			// there's no point in checking the size if the numerator takes up
+			// the ENTIRE fraction bar. so just overflow and return whatever.
+			return unsafe {
+				$name::new_unchecked(self.numer() + rhs.numer(), 1)
+			}
+		}
+		
+		// self = a/b, other = c/d
+		// num = ad + bc
+		let mut num =
+			self.numer() * rhs.denom() as $int
+			+ self.denom() as $int * rhs.numer();
+		// den = bd
+		let mut den = self.denom() * rhs.denom();
+		
+		let mut size = $name::get_frac_size(num as _, den as _);
+		
+		// cancel out common factors of two
+		if size > FRACTION_SIZE {
+			let shift = self.numer().trailing_zeros()
+				.min(rhs.numer().trailing_zeros());
+			num >>= shift;
+			den >>= shift;
+			size = $name::get_frac_size(num as _, den as _);
+		}
+		
+		// *sigh* do the slow thing
+		if size > FRACTION_SIZE {
+			let gcd = self.denom().gcd(rhs.denom());
+			num /= gcd as $int;
+			den /= gcd;
+		}
+		
+		// SAFETY: we have no other option.
+		unsafe {
+			$name::new_unchecked(num, den)
+		}
 	}
 }
 
 impl AddAssign for $name {
+	#[inline]
 	fn add_assign(&mut self, other: $name) {
 		*self = *self + other
 	}
@@ -630,12 +358,14 @@ impl AddAssign for $name {
 impl Sub for $name {
 	type Output = $name;
 
+	#[inline]
 	fn sub(self, other: $name) -> Self::Output {
 		self.checked_sub(other).expect("attempt to subtract with overflow")
 	}
 }
 
 impl SubAssign for $name {
+	#[inline]
 	fn sub_assign(&mut self, other: $name) {
 		*self = *self - other
 	}
@@ -644,12 +374,51 @@ impl SubAssign for $name {
 impl Mul for $name {
 	type Output = $name;
 	
-	fn mul(self, other: $name) -> Self::Output {
-		self.checked_mul(other).expect("attempt to multiply with overflow")
+	#[inline]
+	fn mul(self, rhs: $name) -> Self::Output {
+		if self.is_nan() || rhs.is_nan() {
+			return $name::NAN;
+		}
+		
+		if self.denom_size() == 0 && rhs.denom_size() == 0 {
+			// there's no point in checking the size if the numerator takes up
+			// the ENTIRE fraction bar. so just overflow and return whatever.
+			return unsafe {
+				$name::new_unchecked(self.numer() * rhs.numer(), 1)
+			}
+		}
+		
+		// a/b * c/d = ac/bd
+		let mut n = self.numer() * rhs.numer();
+		let mut d = self.denom() * rhs.denom();
+		
+		let mut size = $name::get_frac_size(n as _, d as _);
+		
+		// cancel out common factors of two
+		if size > FRACTION_SIZE {
+			let shift = self.numer().trailing_zeros()
+				.min(rhs.numer().trailing_zeros());
+			n >>= shift;
+			d >>= shift;
+			size = $name::get_frac_size(n as _, d as _);
+		}
+		
+		// try doing the slow thing
+		if size > FRACTION_SIZE {
+			let gcd = n.unsigned_abs().gcd(d);
+			n /= gcd as $int;
+			d /= gcd;
+		}
+		
+		// SAFETY: there is no other option
+		unsafe {
+			$name::new_unchecked(n as $int, d as $uint)
+		}
 	}
 }
 
 impl MulAssign for $name {
+	#[inline]
 	fn mul_assign(&mut self, other: $name) {
 		*self = *self * other
 	}
@@ -658,12 +427,14 @@ impl MulAssign for $name {
 impl Div for $name {
 	type Output = $name;
 
+	#[inline]
 	fn div(self, other: $name) -> Self::Output {
 		self.checked_div(other).expect("attempt to divide with overflow")
 	}
 }
 
 impl DivAssign for $name {
+	#[inline]
 	fn div_assign(&mut self, other: $name) {
 		*self = *self / other
 	}
@@ -672,16 +443,317 @@ impl DivAssign for $name {
 impl Rem for $name {
 	type Output = $name;
 	
+	#[inline]
 	fn rem(self, other: $name) -> Self::Output {
 		self.checked_rem(other).expect("attempt to divide with overflow")
 	}
 }
 
 impl RemAssign for $name {
+	#[inline]
 	fn rem_assign(&mut self, other: $name) {
 		*self = *self % other
 	}
 }
 
-	} // end of macro case
-} // end of macro
+}}
+
+
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_ratio_tests {
+	($ratio:ident) => {
+
+
+#[cfg(test)]
+mod tests {
+	#[cfg(feature = "bench")]
+	extern crate test;
+
+	use super::*;
+	use crate::$ratio;
+
+	#[test]
+	fn checked_pow() {
+		assert_eq!($ratio(2).checked_pow(FRACTION_SIZE as i32), None);
+	}
+	/*
+	#[test]
+	#[cfg(feature = "roots")]
+	fn checked_sqrt() {
+		assert_eq!(r64(0).checked_sqrt(), Some(r64(0)));
+		assert_eq!(r64(1).checked_sqrt(), Some(r64(1)));
+		assert_eq!(r64(2).checked_sqrt(), None);
+		assert_eq!(r64(4).checked_sqrt(), Some(r64(2)));
+	}
+	*/
+	#[test]
+	fn trunc() {
+		assert_eq!($ratio::NAN.trunc(), $ratio::NAN);
+		
+		assert_eq!($ratio(5).trunc(),     $ratio(5));
+		assert_eq!($ratio!( 1/2).trunc(), $ratio(0));
+		assert_eq!($ratio!(-1/2).trunc(), $ratio(0));
+		assert_eq!($ratio!( 3/2).trunc(), $ratio(1));
+		assert_eq!($ratio!(-3/2).trunc(), $ratio!(-1));
+	}
+	
+	#[test]
+	fn fract() {
+		assert_eq!($ratio::NAN.fract(), $ratio::NAN);
+		
+		assert_eq!($ratio(5).fract(),     $ratio(0));
+		assert_eq!($ratio!( 3/2).fract(), $ratio!( 1/2));
+		assert_eq!($ratio!(-3/2).fract(), $ratio!(-1/2));
+	}
+
+	#[test]
+	fn floor() {
+		assert_eq!($ratio::NAN.floor(), $ratio::NAN);
+		
+		assert_eq!($ratio(1).floor(),     $ratio(1));
+		assert_eq!($ratio!(-1).floor(),   $ratio!(-1));
+		assert_eq!($ratio!( 3/2).floor(), $ratio(1));
+		assert_eq!($ratio!(-3/2).floor(), $ratio!(-2));
+	}
+
+	#[test]
+	fn ceil() {
+		assert_eq!($ratio::NAN.ceil(), $ratio::NAN);
+		
+		assert_eq!($ratio(1).ceil(),     $ratio(1));
+		assert_eq!($ratio!(-1).ceil(),   $ratio!(-1));
+		assert_eq!($ratio!( 3/2).ceil(), $ratio(2));
+		assert_eq!($ratio!(-3/2).ceil(), $ratio!(-1));
+	}
+
+	#[test]
+	fn round() {
+		assert_eq!($ratio::NAN.round(), $ratio::NAN);
+		
+		assert_eq!($ratio(1).round(),     $ratio(1));
+		assert_eq!($ratio!(-1).round(),   $ratio!(-1));
+		assert_eq!($ratio!( 3/2).round(), $ratio(2));
+		assert_eq!($ratio!(-3/2).round(), $ratio!(-2));
+	}
+	
+	#[test]
+	fn min() {
+		assert_eq!($ratio::NAN.min($ratio::NAN), $ratio::NAN);
+		assert_eq!($ratio::NAN.min($ratio(0)),   $ratio(0));
+		assert_eq!($ratio(0).min($ratio::NAN),   $ratio(0));
+		assert_eq!($ratio(0).min($ratio(1)),     $ratio(0));
+	}
+	
+	#[test]
+	fn max() {
+		assert_eq!($ratio::NAN.max($ratio::NAN), $ratio::NAN);
+		assert_eq!($ratio::NAN.max($ratio(0)),   $ratio(0));
+		assert_eq!($ratio(0).max($ratio::NAN),   $ratio(0));
+		assert_eq!($ratio(0).max($ratio(1)),     $ratio(1));
+	}
+	
+	#[test]
+	fn abs() {
+		assert_eq!($ratio::NAN.abs(), $ratio::NAN);
+		assert_eq!($ratio(0).abs(), $ratio(0));
+		assert_eq!($ratio(1).abs(), $ratio(1));
+		
+		assert_eq!($ratio!(-1).abs(), $ratio(1));
+	}
+	
+	#[test]
+	fn signum() {
+		assert_eq!($ratio::NAN.signum(), $ratio::NAN);
+		
+		assert_eq!($ratio(0).signum(), $ratio(0));
+		assert_eq!($ratio(1).signum(), $ratio(1));
+		assert_eq!($ratio(2).signum(), $ratio(1));
+		
+		assert_eq!($ratio!(-1).signum(), $ratio!(-1));
+		assert_eq!($ratio!(-2).signum(), $ratio!(-1));
+	}
+	
+	#[test]
+	fn recip() {
+		assert_eq!($ratio::NAN.recip(), $ratio::NAN);
+		
+		assert_eq!($ratio(5).recip(), $ratio!(1/5));
+		assert_eq!($ratio!(5/2).recip(), $ratio!(2/5));
+		assert_eq!($ratio(1).recip(), $ratio(1));
+	}
+	
+	#[test]
+	fn normalize() {
+		assert_eq!($ratio!( 4 / 2).normalize(), $ratio!( 2));
+		assert_eq!($ratio!(-4 / 2).normalize(), $ratio!(-2));
+	}
+
+	#[test]
+	fn pow() {
+		assert_eq!( $ratio::NAN.pow(0), $ratio(1) );
+		
+		assert_eq!( $ratio(0).pow(0),   $ratio(1) );
+		assert_eq!( $ratio(1).pow(1),   $ratio(1) );
+		
+		assert_eq!( $ratio(3).pow( 2),   $ratio(9)    );
+		assert_eq!( $ratio(3).pow(-2),   $ratio!(1/9) );
+		assert_eq!( $ratio!(-3).pow( 2), $ratio(9)    );
+		assert_eq!( $ratio!(-3).pow(-2), $ratio!(1/9) );
+		
+		assert_eq!( $ratio(2).pow( 3),    $ratio(8)    );
+		assert_eq!( $ratio(2).pow(-3),    $ratio!(1/8) );
+		assert_eq!( $ratio!(1/2).pow( 3), $ratio!(1/8) );
+		assert_eq!( $ratio!(1/2).pow(-3), $ratio(8)    );
+		
+		assert_eq!( $ratio!(-2).pow( 3),   $ratio!(-8)   );
+		assert_eq!( $ratio!(-2).pow(-3),   $ratio!(-1/8) );
+		assert_eq!( $ratio!(-1/2).pow( 3), $ratio!(-1/8) );
+		assert_eq!( $ratio!(-1/2).pow(-3), $ratio!(-8)   );
+	}
+	
+	#[test]
+	fn cmp() {
+		assert!($ratio(0) == $ratio(0));
+		
+		assert!($ratio(0) < $ratio(1));
+		assert!($ratio(2) < $ratio(3));
+		assert!($ratio(0) > -$ratio(1));
+		assert!($ratio(2) > -$ratio(3));
+		
+		// TODO more assertions here
+	}
+	
+	#[test]
+	fn neg() {
+		assert_eq!(-$ratio!( 0), $ratio!( 0));
+		assert_eq!(-$ratio!( 1), $ratio!(-1));
+		assert_eq!(-$ratio!(-1), $ratio!( 1));
+	}
+	
+	#[test]
+	fn checked_neg() {
+		let den = 1 << (FRACTION_SIZE - 1);
+		assert_eq!($ratio::new(-1, den).unwrap().checked_neg(), None);
+	}
+	
+	#[test]
+	fn add() {
+		assert_eq!($ratio(0) + $ratio(0), $ratio(0));
+		
+		assert_eq!($ratio(1) + $ratio(1), $ratio(2));
+		assert_eq!($ratio(1) + $ratio!(-1), $ratio(0));
+		assert_eq!($ratio!(-1) + $ratio(1), $ratio(0));
+		assert_eq!($ratio!(-1) + $ratio!(-1), $ratio!(-2));
+		
+		assert_eq!($ratio(2)     + $ratio(2),     $ratio(4));
+		assert_eq!($ratio!(1/2)  + $ratio!(3/4),  $ratio!(5/4));
+		assert_eq!($ratio!(1/2)  + $ratio!(-3/4), $ratio!(-1/4));
+		assert_eq!($ratio!(-1/2) + $ratio!(3/4),  $ratio!(1/4));
+	}
+	
+	#[test]
+	fn mul() {
+		assert_eq!($ratio(0) * $ratio(0), $ratio(0));
+		
+		assert_eq!($ratio(0) * $ratio(1), $ratio(0));
+		assert_eq!($ratio(1) * $ratio(0), $ratio(0));
+		assert_eq!($ratio(1) * $ratio(1), $ratio(1));
+		
+		assert_eq!(-$ratio(1) *  $ratio(1), -$ratio(1));
+		assert_eq!( $ratio(1) * -$ratio(1), -$ratio(1));
+		assert_eq!(-$ratio(1) * -$ratio(1),  $ratio(1));
+		
+		assert_eq!($ratio(1) * $ratio(2), $ratio(2));
+		assert_eq!($ratio(2) * $ratio(2), $ratio(4));
+		
+		assert_eq!(
+			$ratio!(1/2) * $ratio!(1/2), $ratio!(1/4)
+		);
+		assert_eq!(
+			$ratio!(-1/2) * $ratio!(1/2), $ratio!(-1/4)
+		);
+		assert_eq!(
+			$ratio!(2/3) * $ratio!(2/3), $ratio!(4/9)
+		);
+		assert_eq!(
+			$ratio!(3/2) * $ratio!(2/3), $ratio(1)
+		);
+	}
+	
+	#[test] #[should_panic]
+	fn mul_invalid() {
+		let _ = $ratio(1 << FRACTION_SIZE - 1) * $ratio(1 << FRACTION_SIZE - 1);
+	}
+	
+	#[test]
+	fn div() {
+		assert_eq!($ratio(0) / $ratio(1), $ratio(0));
+		assert_eq!($ratio(0) / $ratio(2), $ratio(0));
+		assert_eq!($ratio(1) / $ratio(1), $ratio(1));
+		
+		assert_eq!(-$ratio(1) /  $ratio(1), -$ratio(1));
+		assert_eq!( $ratio(1) / -$ratio(1), -$ratio(1));
+		assert_eq!(-$ratio(1) / -$ratio(1),  $ratio(1));
+		
+		assert_eq!($ratio(1) / $ratio(2), $ratio!(1/2));
+		assert_eq!($ratio(2) / $ratio(1), $ratio(2));
+		assert_eq!($ratio(2) / $ratio(2), $ratio(1));
+	}
+
+	#[test]
+	fn rem() {
+		assert_eq!($ratio(5) % $ratio(2), $ratio(1));
+		assert_eq!($ratio(6) % $ratio(2), $ratio(0));
+		assert_eq!($ratio(8) % ($ratio(3) / $ratio(2)), $ratio(1) / $ratio(2));
+		
+		// always returns sign of divisor (2nd number)
+		assert_eq!(-$ratio(5) %  $ratio(2),  $ratio(1));
+		assert_eq!( $ratio(5) % -$ratio(2), -$ratio(1));
+		assert_eq!(-$ratio(5) % -$ratio(2), -$ratio(1));
+	}
+	
+	#[test]
+	fn from_str() {
+		assert_eq!("NaN".parse::<$ratio>().unwrap(), $ratio::NAN);
+		assert_eq!("0".parse::<$ratio>().unwrap(),   $ratio(0));
+		assert_eq!("1".parse::<$ratio>().unwrap(),   $ratio(1));
+		assert_eq!("+1".parse::<$ratio>().unwrap(),  $ratio(1));
+		assert_eq!("-1".parse::<$ratio>().unwrap(),  $ratio!(-1));
+		assert_eq!("1/1".parse::<$ratio>().unwrap(), $ratio(1));
+	}
+	
+	#[test] #[should_panic]
+	fn from_str_invalid() {
+		"1/-1".parse::<$ratio>().unwrap();
+		"/1".parse::<$ratio>().unwrap();
+		"1/".parse::<$ratio>().unwrap();
+		"1/0".parse::<$ratio>().unwrap();
+	}
+	/*
+	#[test]
+	fn from_f32() {
+		assert_eq!($ratio::from(0.0), $ratio(0));
+		assert_eq!($ratio::from(1.0), $ratio(1));
+		assert_eq!($ratio::from(-1.0), -$ratio(1));
+		assert_eq!($ratio::from(0.2), $ratio(1) / $ratio(5));
+		assert_eq!($ratio::from(1.0 - 0.7), $ratio(3) / $ratio(10));
+		//assert_eq!($ratio::from(std::f32::consts::E), $ratio(15062) / $ratio(5541));
+		//assert_eq!($ratio::from(std::f32::consts::TAU), $ratio(710) / $ratio(113));
+	}
+	
+	#[test]
+	fn from_f64() {
+		assert_eq!(r64::from(0.0), r64(0));
+		assert_eq!(r64::from(1.0), r64(1));
+		assert_eq!(r64::from(-1.0), -r64(1));
+		assert_eq!(r64::from(0.2), r64(1) / r64(5));
+		assert_eq!(r64::from(1.0 - 0.7), r64(3) / r64(10));
+		//assert_eq!(r64::from(std::f64::consts::E), r64(268876667) / r64(98914198));
+		//assert_eq!(r64::from(std::f64::consts::TAU), r64(411557987) / r64(65501488));
+	}
+	*/
+}
+
+}}
