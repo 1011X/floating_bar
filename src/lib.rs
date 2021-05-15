@@ -297,57 +297,6 @@ impl Neg for $name {
 	}
 }
 
-impl Add for $name {
-	type Output = $name;
-	
-	#[inline]
-	fn add(self, rhs: $name) -> Self::Output {
-		//self.checked_add(other).expect("attempt to add with overflow")
-		if self.is_nan() || rhs.is_nan() {
-			return $name::NAN;
-		}
-		
-		if self.denom_size() == 0 && rhs.denom_size() == 0 {
-			// there's no point in checking the size if the numerator takes up
-			// the ENTIRE fraction bar. so just overflow and return whatever.
-			return unsafe {
-				$name::new_unchecked(self.numer() + rhs.numer(), 1)
-			}
-		}
-		
-		// self = a/b, other = c/d
-		// num = ad + bc
-		let mut num =
-			self.numer() * rhs.denom() as $int
-			+ self.denom() as $int * rhs.numer();
-		// den = bd
-		let mut den = self.denom() * rhs.denom();
-		
-		let mut size = $name::get_frac_size(num as _, den as _);
-		
-		// cancel out common factors of two
-		if size > FRACTION_SIZE {
-			let shift = self.numer().trailing_zeros()
-				.min(rhs.numer().trailing_zeros());
-			num >>= shift;
-			den >>= shift;
-			size = $name::get_frac_size(num as _, den as _);
-		}
-		
-		// *sigh* do the slow thing
-		if size > FRACTION_SIZE {
-			let gcd = self.denom().gcd(rhs.denom());
-			num /= gcd as $int;
-			den /= gcd;
-		}
-		
-		// SAFETY: we have no other option.
-		unsafe {
-			$name::new_unchecked(num, den)
-		}
-	}
-}
-
 impl AddAssign for $name {
 	#[inline]
 	fn add_assign(&mut self, other: $name) {
@@ -360,7 +309,8 @@ impl Sub for $name {
 
 	#[inline]
 	fn sub(self, other: $name) -> Self::Output {
-		self.checked_sub(other).expect("attempt to subtract with overflow")
+		self + (-other)
+		//self.checked_sub(other).expect("attempt to subtract with overflow")
 	}
 }
 
@@ -368,52 +318,6 @@ impl SubAssign for $name {
 	#[inline]
 	fn sub_assign(&mut self, other: $name) {
 		*self = *self - other
-	}
-}
-
-impl Mul for $name {
-	type Output = $name;
-	
-	#[inline]
-	fn mul(self, rhs: $name) -> Self::Output {
-		if self.is_nan() || rhs.is_nan() {
-			return $name::NAN;
-		}
-		
-		if self.denom_size() == 0 && rhs.denom_size() == 0 {
-			// there's no point in checking the size if the numerator takes up
-			// the ENTIRE fraction bar. so just overflow and return whatever.
-			return unsafe {
-				$name::new_unchecked(self.numer() * rhs.numer(), 1)
-			}
-		}
-		
-		// a/b * c/d = ac/bd
-		let mut n = self.numer() * rhs.numer();
-		let mut d = self.denom() * rhs.denom();
-		
-		let mut size = $name::get_frac_size(n as _, d as _);
-		
-		// cancel out common factors of two
-		if size > FRACTION_SIZE {
-			let shift = self.numer().trailing_zeros()
-				.min(rhs.numer().trailing_zeros());
-			n >>= shift;
-			d >>= shift;
-			size = $name::get_frac_size(n as _, d as _);
-		}
-		
-		// try doing the slow thing
-		if size > FRACTION_SIZE {
-			let gcd = n.unsigned_abs().gcd(d);
-			n /= gcd as $int;
-			d /= gcd;
-		}
-		
-		// SAFETY: there is no other option
-		unsafe {
-			$name::new_unchecked(n as $int, d as $uint)
-		}
 	}
 }
 
@@ -429,7 +333,8 @@ impl Div for $name {
 
 	#[inline]
 	fn div(self, other: $name) -> Self::Output {
-		self.checked_div(other).expect("attempt to divide with overflow")
+		self * other.recip()
+		//self.checked_div(other).expect("attempt to divide with overflow")
 	}
 }
 
@@ -445,7 +350,11 @@ impl Rem for $name {
 	
 	#[inline]
 	fn rem(self, other: $name) -> Self::Output {
-		self.checked_rem(other).expect("attempt to divide with overflow")
+		// TODO: this inherits self's sign. is this what we want?
+		(self / other).fract() * other
+		// This will inherit other's sign.
+		//let div = self / other;
+		//(div - div.floor()) * other
 	}
 }
 
@@ -654,6 +563,23 @@ mod tests {
 	}
 	
 	#[test]
+	fn checked_add() {
+		assert_eq!($ratio(0).checked_add($ratio(0)), Some($ratio(0)));
+		
+		assert_eq!($ratio(1).checked_add($ratio(1)), Some($ratio(2)));
+		assert_eq!($ratio(1).checked_add($ratio!(-1)), Some($ratio(0)));
+		assert_eq!($ratio!(-1).checked_add($ratio(1)), Some($ratio(0)));
+		assert_eq!($ratio!(-1).checked_add($ratio!(-1)), Some($ratio!(-2)));
+		
+		assert_eq!($ratio(2).checked_add($ratio(2)), Some($ratio(4)));
+		assert_eq!($ratio!(1/2).checked_add($ratio!(3/4)), Some($ratio!(5/4)));
+		assert_eq!($ratio!(1/2).checked_add($ratio!(-3/4)), Some($ratio!(-1/4)));
+		assert_eq!($ratio!(-1/2).checked_add($ratio!(3/4)), Some($ratio!(1/4)));
+		
+		assert_eq!($ratio::MAX.checked_add($ratio(1)), None);
+	}
+	
+	#[test]
 	fn mul() {
 		assert_eq!($ratio(0) * $ratio(0), $ratio(0));
 		
@@ -682,11 +608,6 @@ mod tests {
 		);
 	}
 	
-	#[test] #[should_panic]
-	fn mul_invalid() {
-		let _ = $ratio(1 << FRACTION_SIZE - 1) * $ratio(1 << FRACTION_SIZE - 1);
-	}
-	
 	#[test]
 	fn div() {
 		assert_eq!($ratio(0) / $ratio(1), $ratio(0));
@@ -706,11 +627,11 @@ mod tests {
 	fn rem() {
 		assert_eq!($ratio(5) % $ratio(2), $ratio(1));
 		assert_eq!($ratio(6) % $ratio(2), $ratio(0));
-		assert_eq!($ratio(8) % ($ratio(3) / $ratio(2)), $ratio(1) / $ratio(2));
+		assert_eq!($ratio(8) % $ratio!(3 / 2), $ratio!(1 / 2));
 		
-		// always returns sign of divisor (2nd number)
-		assert_eq!(-$ratio(5) %  $ratio(2),  $ratio(1));
-		assert_eq!( $ratio(5) % -$ratio(2), -$ratio(1));
+		// always returns sign of dividend (1st number)
+		assert_eq!(-$ratio(5) %  $ratio(2), -$ratio(1));
+		assert_eq!( $ratio(5) % -$ratio(2),  $ratio(1));
 		assert_eq!(-$ratio(5) % -$ratio(2), -$ratio(1));
 	}
 	
@@ -739,19 +660,23 @@ mod tests {
 		assert_eq!($ratio::from(-1.0), -$ratio(1));
 		assert_eq!($ratio::from(0.2), $ratio(1) / $ratio(5));
 		assert_eq!($ratio::from(1.0 - 0.7), $ratio(3) / $ratio(10));
-		//assert_eq!($ratio::from(std::f32::consts::E), $ratio(15062) / $ratio(5541));
-		//assert_eq!($ratio::from(std::f32::consts::TAU), $ratio(710) / $ratio(113));
+		//assert_eq!($ratio::from(std::f32::consts::E), $ratio(15062/5541));
+		//assert_eq!($ratio::from(std::f32::consts::TAU), $ratio!(710/113));
+		//assert_eq!($ratio::from(1.618033988749894), $ratio!(4181/2584));
+		//assert_eq!($ratio::from(std::f32::consts::SQRT_2), $ratio(4756/3363));
 	}
 	
 	#[test]
 	fn from_f64() {
-		assert_eq!(r64::from(0.0), r64(0));
-		assert_eq!(r64::from(1.0), r64(1));
-		assert_eq!(r64::from(-1.0), -r64(1));
-		assert_eq!(r64::from(0.2), r64(1) / r64(5));
-		assert_eq!(r64::from(1.0 - 0.7), r64(3) / r64(10));
-		//assert_eq!(r64::from(std::f64::consts::E), r64(268876667) / r64(98914198));
-		//assert_eq!(r64::from(std::f64::consts::TAU), r64(411557987) / r64(65501488));
+		assert_eq!($ratio::from(0.0), $ratio(0));
+		assert_eq!($ratio::from(1.0), $ratio(1));
+		assert_eq!($ratio::from(-1.0), -$ratio(1));
+		assert_eq!($ratio::from(0.2), $ratio!(1/5));
+		assert_eq!($ratio::from(1.0 - 0.7), $ratio!(3/10));
+		//assert_eq!(r64::from(std::f64::consts::E), r64!(268876667 / 98914198));
+		//assert_eq!(r64::from(std::f64::consts::TAU), r64!(411557987 / 65501488));
+		//assert_eq!(r64::from(1.618033988749894), r64!(39088169 / 24157817));
+		assert_eq!($ratio::from(std::f64::consts::SQRT_2), $ratio(11863283/8388608));
 	}
 	*/
 }

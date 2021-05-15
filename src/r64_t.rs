@@ -36,17 +36,17 @@ impl r64 {
 	// PRIVATE methods
 	
 	#[inline]
-	fn denom_size(self) -> u64 {
+	const fn denom_size(self) -> u64 {
 		self.0 >> FRACTION_SIZE
 	}
 	
 	#[inline]
-	fn denom_mask(self) -> u64 {
+	const fn denom_mask(self) -> u64 {
 		(1 << self.denom_size()) - 1
 	}
 	
 	#[inline]
-	fn numer_mask(self) -> u64 {
+	const fn numer_mask(self) -> u64 {
 		FRACTION_FIELD & !self.denom_mask()
 	}
 	
@@ -66,7 +66,7 @@ impl r64 {
 
 	/// Returns the numerator of this rational number. `self` cannot be NaN.
 	#[inline]
-	pub(crate) fn numer(self) -> i64 {
+	pub(crate) const fn numer(self) -> i64 {
 		// apparently this does sign-extension
 		(self.0 as i64)
 		.wrapping_shl(DSIZE_SIZE)
@@ -75,7 +75,7 @@ impl r64 {
 	
 	/// Returns the denominator of this rational number. `self` cannot be NaN.
 	#[inline]
-	pub(crate) fn denom(self) -> u64 {
+	pub(crate) const fn denom(self) -> u64 {
 		1 << self.denom_size() | (self.0 & self.denom_mask())
 	}
 	
@@ -132,21 +132,21 @@ impl r64 {
 	
 	/// Returns `true` if this value is `NAN` and `false` otherwise.
 	#[inline]
-	pub fn is_nan(self) -> bool {
+	pub const fn is_nan(self) -> bool {
 		self.denom_size() >= FRACTION_SIZE
 	}
 
 	/// Returns `true` if `self` is positive and `false` if the number is zero,
 	/// negative, or `NAN`.
 	#[inline]
-	pub fn is_positive(self) -> bool {
+	pub const fn is_positive(self) -> bool {
 		!self.is_nan() && self.numer().is_positive()
 	}
 
 	/// Returns `true` if `self` is negative and `false` if the number is zero,
 	/// positive, or `NAN`.
 	#[inline]
-	pub fn is_negative(self) -> bool {
+	pub const fn is_negative(self) -> bool {
 		!self.is_nan() && self.numer().is_negative()
 	}
 	
@@ -467,6 +467,93 @@ impl r64 {
 }
 
 crate::impl_ratio_traits! { r64 u64 i64 NonZeroU64 }
+
+impl Add for r64 {
+	type Output = r64;
+	
+	#[inline]
+	fn add(self, rhs: r64) -> Self::Output {
+		if self.is_nan() || rhs.is_nan() {
+			return r64::NAN;
+		}
+		
+		// self = a/b, other = c/d
+		// num = ad + bc
+		let mut num =
+			self.numer() * rhs.denom() as i64
+			+ self.denom() as i64 * rhs.numer();
+		// den = bd
+		let mut den = self.denom() * rhs.denom();
+		
+		let frac_size = r64::get_frac_size(num as _, den as _);
+		
+		// addition will *rarely* reach this case.
+		if frac_size > FRACTION_SIZE {
+			let gcd = num.unsigned_abs().gcd(den);
+			num /= gcd as i64;
+			den /= gcd;
+		}
+		
+		debug_assert!(
+			frac_size <= FRACTION_SIZE,
+			"attempt to add with overflow"
+		);
+		
+		// SAFETY: assertion above guarantees size, den is never zero.
+		unsafe {
+			r64::new_unchecked(num, den)
+		}
+	}
+}
+
+impl Mul for r64 {
+	type Output = r64;
+	
+	#[inline]
+	fn mul(self, rhs: r64) -> Self::Output {
+		if self.is_nan() || rhs.is_nan() {
+			return r64::NAN;
+		}
+		
+		// a/b * c/d = ac/bd
+		let mut num = self.numer() as i128 * rhs.numer() as i128;
+		let mut den = self.denom() as u128 * rhs.denom() as u128;
+		
+		let frac_size = r64::get_frac_size(num as _, den as _);
+		
+		if frac_size > FRACTION_SIZE {
+			// (A) shift out common 2^n factors on overflow
+			let shift = num.trailing_zeros().min(den.trailing_zeros());
+			num >>= shift;
+			den >>= shift;
+			
+			// (B) factor out common factors on overflow
+			/*
+			let gcd = num.unsigned_abs().gcd(den);
+			num /= gcd as i128;
+			den /= gcd;
+			*/
+			
+			// (C) shift out least significant bits on overflow
+			/*
+			let offset = ((frac_size - FRACTION_SIZE + 1) / 2)
+				.min((128 - den.leading_zeros() - 1) as u64);
+			num >>= offset;
+			den >>= offset;
+			*/
+		}
+		
+		debug_assert!(
+			frac_size <= FRACTION_SIZE,
+			"attempt to multiply with overflow"
+		);
+		
+		// SAFETY: size is guaranteed by the shift done above.
+		unsafe {
+			r64::new_unchecked(num as i64, den as u64)
+		}
+	}
+}
 
 impl From<u16> for r64 {
 	#[inline]

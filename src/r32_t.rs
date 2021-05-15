@@ -36,17 +36,17 @@ impl r32 {
 	// PRIVATE API
 	
 	#[inline]
-	fn denom_size(self) -> u32 {
+	const fn denom_size(self) -> u32 {
 		self.0 >> FRACTION_SIZE
 	}
 	
 	#[inline]
-	fn denom_mask(self) -> u32 {
+	const fn denom_mask(self) -> u32 {
 		(1 << self.denom_size()) - 1
 	}
 	
 	#[inline]
-	fn numer_mask(self) -> u32 {
+	const fn numer_mask(self) -> u32 {
 		FRACTION_FIELD & !self.denom_mask()
 	}
 	
@@ -66,7 +66,7 @@ impl r32 {
 
 	/// Returns the numerator of this rational number. `self` cannot be NaN.
 	#[inline]
-	pub(crate) fn numer(self) -> i32 {
+	pub(crate) const fn numer(self) -> i32 {
 		// apparently this does sign-extension
 		(self.0 as i32)
 		.wrapping_shl(DSIZE_SIZE)
@@ -75,7 +75,7 @@ impl r32 {
 	
 	/// Returns the denominator of this rational number. `self` cannot be NaN.
 	#[inline]
-	pub(crate) fn denom(self) -> u32 {
+	pub(crate) const fn denom(self) -> u32 {
 		1 << self.denom_size() | (self.0 & self.denom_mask())
 	}
 	
@@ -83,7 +83,7 @@ impl r32 {
 	/// 
 	/// # Safety
 	/// 
-	/// The values must fit in the fraction field.
+	/// The values must fit in the fraction field and `denom` must not be zero.
 	#[inline]
 	pub const unsafe fn new_unchecked(numer: i32, denom: u32) -> r32 {
 		let denom_size = 32 - denom.leading_zeros() - 1;
@@ -100,6 +100,8 @@ impl r32 {
 	/// Creates a rational number if the given values both fit in the fraction
 	/// field.
 	pub const fn new(numer: i32, denom: u32) -> Option<r32> {
+		if denom == 0 { return None }
+		
 		let denom_size = 32 - denom.leading_zeros() - 1;
 		let numer_size = if numer >= 0 {
 			32 - numer.leading_zeros() + 1
@@ -132,21 +134,21 @@ impl r32 {
 	
 	/// Returns `true` if this value is `NAN` and `false` otherwise.
 	#[inline]
-	pub fn is_nan(self) -> bool {
+	pub const fn is_nan(self) -> bool {
 		self.denom_size() >= FRACTION_SIZE
 	}
 
 	/// Returns `true` if `self` is positive and `false` if the number is zero,
 	/// negative, or `NAN`.
 	#[inline]
-	pub fn is_positive(self) -> bool {
+	pub const fn is_positive(self) -> bool {
 		!self.is_nan() && self.numer().is_positive()
 	}
 
 	/// Returns `true` if `self` is negative and `false` if the number is zero,
 	/// positive, or `NAN`.
 	#[inline]
-	pub fn is_negative(self) -> bool {
+	pub const fn is_negative(self) -> bool {
 		!self.is_nan() && self.numer().is_negative()
 	}
 	
@@ -378,11 +380,14 @@ impl r32 {
 	/// Checked addition. Computes `self + rhs`, returning `None` if overflow
 	/// occurred.
 	pub fn checked_add(self, rhs: r32) -> Option<r32> {
-		if self.is_nan() || rhs.is_nan() {
-			return Some(r32::NAN);
+		match (self.is_nan(), rhs.is_nan()) {
+			(true, true)  => return Some(r32::NAN),
+			(true, false) => return Some(self),
+			(false, true) => return Some(rhs),
+			_ => {}
 		}
-		// self = a/b, other = c/d
 		
+		// self = a/b, other = c/d
 		// num = ad + bc
 		let mut num =
 			self.numer() as i64 * rhs.denom() as i64
@@ -411,8 +416,11 @@ impl r32 {
 	/// 
 	/// If one argument is NaN and the other is zero, this returns zero.
 	pub fn checked_mul(self, rhs: r32) -> Option<r32> {
-		if self.is_nan() || rhs.is_nan() {
-			return Some(r32::NAN);
+		match (self.is_nan(), rhs.is_nan()) {
+			(true, true)  => return Some(r32::NAN),
+			(true, false) => return Some(self),
+			(false, true) => return Some(rhs),
+			_ => {}
 		}
 		
 		// a/b * c/d = ac/bd
@@ -491,6 +499,95 @@ impl r32 {
 
 crate::impl_ratio_traits! { r32 u32 i32 NonZeroU32 }
 
+impl Add for r32 {
+	type Output = r32;
+	
+	#[inline]
+	fn add(self, rhs: r32) -> Self::Output {
+		if self.is_nan() || rhs.is_nan() {
+			return r32::NAN;
+		}
+		
+		// self = a/b, other = c/d
+		// num = ad + bc
+		let mut num =
+			self.numer() * rhs.denom() as i32
+			+ self.denom() as i32 * rhs.numer();
+		// den = bd
+		let mut den = self.denom() * rhs.denom();
+		
+		let mut frac_size = r32::get_frac_size(num as _, den as _);
+		
+		// addition will *rarely* reach this case.
+		if frac_size > FRACTION_SIZE {
+			let gcd = num.unsigned_abs().gcd(den);
+			num /= gcd as i32;
+			den /= gcd;
+			frac_size = r32::get_frac_size(num as _, den as _);
+		}
+		
+		debug_assert!(
+			frac_size <= FRACTION_SIZE,
+			"attempt to add with overflow"
+		);
+		
+		// SAFETY: assertion above guarantees size, den is never zero.
+		unsafe {
+			r32::new_unchecked(num, den)
+		}
+	}
+}
+
+
+impl Mul for r32 {
+	type Output = r32;
+	
+	#[inline]
+	fn mul(self, rhs: r32) -> Self::Output {
+		if self.is_nan() || rhs.is_nan() {
+			return r32::NAN;
+		}
+		
+		// a/b * c/d = ac/bd
+		let mut num = self.numer() as i64 * rhs.numer() as i64;
+		let mut den = self.denom() as u64 * rhs.denom() as u64;
+		
+		let frac_size = r32::get_frac_size(num as _, den as _);
+		
+		if frac_size > FRACTION_SIZE {
+			// (A) shift out common 2^n factors on overflow
+			let shift = num.trailing_zeros().min(den.trailing_zeros());
+			num >>= shift;
+			den >>= shift;
+			
+			// (B) factor out common factors on overflow
+			/*
+			let gcd = num.unsigned_abs().gcd(den);
+			num /= gcd as i64;
+			den /= gcd;
+			*/
+			
+			// (C) shift out least significant bits on overflow
+			/*
+			let offset = ((frac_size - FRACTION_SIZE + 1) / 2)
+				.min(64 - den.leading_zeros() - 1);
+			num >>= offset;
+			den >>= offset;
+			*/
+		}
+		
+		debug_assert!(
+			frac_size <= FRACTION_SIZE,
+			"attempt to multiply with overflow"
+		);
+		
+		// SAFETY: size is guaranteed by the shift done above.
+		unsafe {
+			r32::new_unchecked(num as i32, den as u32)
+		}
+	}
+}
+
 impl From<u16> for r32 {
 	#[inline]
 	fn from(v: u16) -> Self { r32(v as u32) }
@@ -499,7 +596,7 @@ impl From<u16> for r32 {
 impl From<i16> for r32 {
 	#[inline]
 	fn from(v: i16) -> Self {
-		// SAFETY: all i16 values fits in r32.
+		// SAFETY: all i16 values fit in r32.
 		unsafe { r32::new_unchecked(v as i32, 1) }
 	}
 }
