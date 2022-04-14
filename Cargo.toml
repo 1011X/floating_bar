@@ -35,6 +35,10 @@ name = "r32_mul"
 harness = false
 
 [[bench]]
+name = "r32_div"
+harness = false
+
+[[bench]]
 name = "r64_add"
 harness = false
 
