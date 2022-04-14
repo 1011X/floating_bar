@@ -17,10 +17,12 @@ assert_eq!(widescreen, r32!(1920 / 1080));
 ## Structure
 
 The floating-bar types follow a general structure:
-* the **denominator-size field**: always log<sub>2</sub> of the type's total size, stored in the highest bits.
+* the **denominator-size field**: always log<sub>2</sub> of the type's total
+  size, stored in the highest bits.
 * the **fraction field**: stored in the remaining bits.
 
-Here is a visual aid, where each character corresponds to one bit and the least significant bit is on the right:
+Here is a visual aid, where each character corresponds to one bit and the least
+significant bit is on the right:
 ```txt
 d = denominator size field, f = fraction field
 
@@ -29,7 +31,8 @@ r64: ddddddffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ```
 
 The fraction field stores both the numerator and the denominator. The size of
-the denominator is determined by the denominator-size field, which gives the position of the partition (the "fraction bar") from the right.
+the denominator is determined by the denominator-size field, which gives the
+position of the partition (the "fraction bar") from the right.
 
 The numerator is stored as a two's complement signed integer on the left side of
 the partition. The denominator is stored as an unsigned integer on the right
@@ -45,15 +48,15 @@ reducible, and not-a-number (also known as NaNs).
 **NaN** values are those with an overly large denominator size as to leave no
 room for the numerator. The library mostly ignores these values, and only uses
 one particular value to provide a `NAN` constant. They can be used to store
-payloads if desired using the `.to_bits()` and `from_bits()` methods. Effort is
-put into not clobbering possible payload values during calculations, but no
+payloads if desired using the `.to_bits()` and `from_bits()` functions. Effort
+is put into not clobbering possible payload values during calculations, but no
 guarantees are made.
 
 **Reducible** values are those where the numerator and denominator share some
-common factor that has not been canceled out, and thus take up more space than
-their normalized form. Due to the performance cost of finding and canceling out
-common factors, reducible values are only normalized when absolutely necessary,
-such as when the result would otherwise overflow.
+common factor that has not been canceled out, and thus use more bits than their
+normalized form. Due to the performance cost of finding and canceling out common
+factors, reducible values are only normalized when absolutely necessary, such as
+when the result would otherwise overflow.
 
 **Normal** values are those where the numerator and denominator don't share any
 common factors, and could not be any smaller while still accurately representing
