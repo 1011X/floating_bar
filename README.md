@@ -4,6 +4,21 @@ This library provides the floating-bar type, which gives a memory-efficient repr
 
 For more information about the API and implementation details, please refer to the [library documentation](https://docs.rs/floating_bar/).
 
+## Usage
+
+To use this crate, add the following line to your `Cargo.toml`, under `[dependencies]`:
+```toml
+floating_bar = "0.4.0"
+```
+
+## Features
+
+### `std` (default)
+
+This enables use of `std` when necessary. In particular, this implements `std::error::Error` for `ParseRatioErr`.
+
+This feature is enabled by default.
+
 ## Purpose
 
 Almost all programming languages provide a way to represent different numeric types. These usually include natural numbers (`u16`), integers (`i32`), and reals (`f64`). However, there are no numeric types that cover rational numbers. The purpose of this library is to fulfill this niche not covered by other numeric types.
@@ -19,14 +34,6 @@ Floating-bar numbers avoid this issue by storing the exact integer values in a c
 Conversely, this library is not meant as a replacement to floating-point numbers, just like rational numbers are not a replacement for real numbers. Floating-point is still beneficial when doing calculations where irrational numbers are involved (like *tau*, *pi*, *e*, or square roots), or when an approximate result is considered good enough.
 
 That said, they're not mutually exclusive. There are conversion methods to convert from `r32` to `f32` when needed (and vice-versa).
-
-## Features
-
-### `std` (default)
-
-This enables use of `std` when necessary. In particular, this implements `std::error::Error` for `ParseRatioErr`.
-
-This feature is enabled by default.
 
 ## Contributing
 
