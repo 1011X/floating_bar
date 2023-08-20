@@ -24,10 +24,15 @@ The floating-bar types follow a general structure:
 Here is a visual aid, where each character corresponds to one bit and the least
 significant bit is on the right:
 ```txt
-d = denominator size field, f = fraction field
+r32: ddddd fffffffffffffffffffffffffff
+     ||||| +++++++++++++++++++++++++++--  0-26: fraction field
+     +++++------------------------------ 27-31: denominator-size field
 
-r32: dddddfffffffffffffffffffffffffff
-r64: ddddddffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+r64: dddddd ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+     |||||| ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+     ||||||                                    |
+     ||||||                                    +--  0-57: fraction field
+     ++++++--------------------------------------- 58-63: denominator-size field
 ```
 
 The fraction field stores both the numerator and the denominator. The size of
