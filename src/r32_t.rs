@@ -687,52 +687,76 @@ impl TryFrom<r32> for i128 {
 
 impl From<f32> for r32 {
 	fn from(mut f: f32) -> Self {
-		// why 13? bc it's fraction_size / 2
-		// div by 2 is to have enough space for both numer and denom.
-		// don't count implicit bit because then we can only represent 0 - 0.5
-		// in a number that could be 0 - 1.
-		const N: u32 = (1 << 13) - 1; // 2^13 - 1 = 8191
-		
-		let is_neg = f < 0.0;
-		
 		if f.is_nan() || f.is_infinite() {
 			return r32::NAN;
 		}
-		
+
+		let is_neg = f < 0.0;
 		if is_neg { f = f.abs() }
-		
+
 		let (mut a, mut b) = (0, 1); // lower
 		let (mut c, mut d) = (1, 0); // upper
-		let mut is_mediant = false;
-		
-		// while neither denominator is too big,
-		while b <= N && d <= N {
-			let mediant = (a + c) as f32 / (b + d) as f32;
-			
-			if f == mediant {
-				is_mediant = true;
-				break;
-			} else if f > mediant {
-				a += c;
-				b += d;
-			} else {
-				c += a;
-				d += b;
+
+		let result = loop {
+			let p: i32 = a + c;
+			let q: u32 = b + d;
+
+			let lower_residual = f.mul_add(b as f32, -(a as f32)).abs();
+			let upper_residual = f.mul_add(d as f32, -(c as f32)).abs();
+
+			// when an exact fraction no longer fits, use closest approximation
+			if r32::get_frac_size(p as i64, q as u64) > FRACTION_SIZE {
+				let lower_error = d as f32 * lower_residual;
+				let upper_error = b as f32 * upper_residual;
+
+				if lower_error <= upper_error {
+					break (a, b)
+				} else {
+					break (c, d)
+				}
 			}
-		}
-		
-		let result = if is_mediant {
-			// if N can contain sum of both denoms,
-			if b + d <= N { (a + c, b + d) } // use sum of numers & sum of denoms
-			// else if upper bound denom is bigger than lower bound denom,
-			else if d > b { (c, d) } // use upper bound
-			else          { (a, b) } // else, use lower bound
-		} else {
-			// if lower bound denom is too big,
-			if b > N { (c, d) } // use upper bound
-			else     { (a, b) } // else, lower bound
+
+			match f.mul_add(q as f32, -(p as f32)).total_cmp(&0.0_f32) {
+			std::cmp::Ordering::Greater => {
+				let mut step = (lower_residual / upper_residual).floor() as u32;
+				assert!(step > 0);
+
+				(a, b) = loop {
+					if step == 1 {
+						break (p, q);
+					}
+
+					let na = a as i64 + step as i64 * c as i64;
+					let nb = b as u64 + step as u64 * d as u64;
+					if r32::get_frac_size(na, nb) <= FRACTION_SIZE {
+						break (na as i32, nb as u32);
+					}
+
+					step >>= 1;
+				}
+			},
+			std::cmp::Ordering::Less => {
+				let mut step = (upper_residual / lower_residual).floor() as u32;
+				assert!(step > 0);
+
+				(c, d) = loop {
+					if step == 1 {
+						break (p, q);
+					}
+
+					let nc = c as i64 + step as i64 * a as i64;
+					let nd = d as u64 + step as u64 * b as u64;
+					if r32::get_frac_size(nc, nd) <= FRACTION_SIZE {
+						break (nc as i32, nd as u32);
+					}
+
+					step >>= 1;
+				}
+			},
+			std::cmp::Ordering::Equal => break (p, q), // exact fraction
+			}
 		};
-		
+
 		// SAFETY: values were given a maximum in which they could fit.
 		unsafe {
 			if is_neg {
@@ -787,3 +811,14 @@ impl PartialOrd for r32 {
 
 crate::impl_ratio_tests!(r32);
 
+#[test]
+fn from_f32_chooses_closest_representable_fraction() {
+	// algorithm becomes inexact around 2^-23, so stop there
+	for x in 0..23 {
+		assert_eq!(r32::from(<f32>::from(r32::new(1,1u32<<x).unwrap())), r32::new(1,1u32<<x).unwrap());
+	}
+	// algorithm becomes inexact around 2^24, so stop there
+	for x in 0..24 {
+		assert_eq!(r32::from(<f32>::from(r32::new(1i32<<x,1).unwrap())), r32::new(1i32<<x,1).unwrap());
+	}
+}

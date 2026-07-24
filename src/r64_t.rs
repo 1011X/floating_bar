@@ -639,52 +639,79 @@ impl From<f32> for r64 {
 
 impl From<f64> for r64 {
 	/// Based on [John D. Cook's Best Rational Approximation post](https://www.johndcook.com/blog/2010/10/20/best-rational-approximation/)
+	/// Modified to fix stopping condition as per [Chris Capobianco's farey_approximation.cpp gist](https://gist.github.com/ccapo/d24f8dd21a20aa1b2e59677793e39304)
+	/// Implement compressed Stern-Brocot traversal as per [Fast Rational Search via Stern–Brocot Tree](https://arxiv.org/html/2512.18036v1)
 	fn from(mut f: f64) -> Self {
-		// why 29? bc it's fraction_size / 2 + 1
-		// div by 2 is to have enough space for both numer and denom.
-		// plus 1 is to count implicit bit bc numer and denom can both have 29
-		// bits of precision here.
-		const N: u64 = (1 << 29) - 1; // 2^29 - 1 = 536870911
-		let is_neg = f < 0.0;
-		
 		if f.is_nan() || f.is_infinite() {
 			return r64::NAN;
 		}
-		
+
+		let is_neg = f < 0.0;
 		if is_neg { f = f.abs() }
-		
+
 		let (mut a, mut b) = (0, 1); // lower
 		let (mut c, mut d) = (1, 0); // upper
-		let mut is_mediant = false;
-		
-		// while neither denominator is too big,
-		while b <= N && d <= N {
-			let mediant = (a + c) as f64 / (b + d) as f64;
-			
-			if f == mediant {
-				is_mediant = true;
-				break;
-			} else if f > mediant {
-				a += c;
-				b += d;
-			} else {
-				c += a;
-				d += b;
+
+		let result = loop {
+			let p: i64 = a + c;
+			let q: u64 = b + d;
+
+			let lower_residual = f.mul_add(b as f64, -(a as f64)).abs();
+			let upper_residual = f.mul_add(d as f64, -(c as f64)).abs();
+
+			// when an exact fraction no longer fits, use closest approximation
+			if r64::get_frac_size(p as i128, q as u128) > FRACTION_SIZE {
+				let lower_error = d as f64 * lower_residual;
+				let upper_error = b as f64 * upper_residual;
+
+				if lower_error <= upper_error {
+					break (a, b)
+				} else {
+					break (c, d)
+				}
 			}
-		}
-		
-		let result = if is_mediant {
-			// if N can contain sum of both denoms,
-			if b + d <= N { (a + c, b + d) } // use sum of numers & sum of denoms
-			// else if upper bound denom is bigger than lower bound denom,
-			else if d > b { (c, d) } // use upper bound
-			else          { (a, b) } // else, use lower bound
-		} else {
-			// if lower bound denom is too big,
-			if b > N { (c, d) } // use upper bound
-			else     { (a, b) } // else, lower bound
+
+			match f.mul_add(q as f64, -(p as f64)).total_cmp(&0.0_f64) {
+			std::cmp::Ordering::Greater => {
+				let mut step = (lower_residual / upper_residual).floor() as u64;
+				assert!(step > 0);
+
+				(a, b) = loop {
+					if step == 1 {
+						break (p, q);
+					}
+
+					let na = a as i128 + step as i128 * c as i128;
+					let nb = b as u128 + step as u128 * d as u128;
+					if r64::get_frac_size(na, nb) <= FRACTION_SIZE {
+						break (na as i64, nb as u64);
+					}
+
+					step >>= 1;
+				}
+			},
+			std::cmp::Ordering::Less => {
+				let mut step = (upper_residual / lower_residual).floor() as u64;
+				assert!(step > 0);
+
+				(c, d) = loop {
+					if step == 1 {
+						break (p, q);
+					}
+
+					let nc = c as i128 + step as i128 * a as i128;
+					let nd = d as u128 + step as u128 * b as u128;
+					if r64::get_frac_size(nc, nd) <= FRACTION_SIZE {
+						break (nc as i64, nd as u64);
+					}
+
+					step >>= 1;
+				}
+			},
+			std::cmp::Ordering::Equal => break (p, q), // exact fraction
+			}
 		};
-		
+
 		// SAFETY: values were given a maximum in which they could fit.
 		unsafe {
 			if is_neg {
@@ -749,3 +776,14 @@ impl PartialOrd for r64 {
 
 crate::impl_ratio_tests!(r64);
 
+#[test]
+fn from_f64_chooses_closest_representable_fraction() {
+	// algorithm becomes inexact around 2^-50, so stop there
+	for x in 0..50 {
+		assert_eq!(r64::from(<f64>::from(r64::new(1,1u64<<x).unwrap())), r64::new(1,1u64<<x).unwrap());
+	}
+	// algorithm becomes inexact around 2^53, so stop there
+	for x in 0..53 {
+		assert_eq!(r64::from(<f64>::from(r64::new(1i64<<x,1).unwrap())), r64::new(1i64<<x,1).unwrap());
+	}
+}
