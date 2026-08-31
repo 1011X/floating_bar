@@ -1,6 +1,6 @@
 # Floating Bar
 
-This library provides the floating-bar type, which gives a memory-efficient representation for rational numbers. It is based on [Inigo Quilez's blog post exploring the concept](http://www.iquilezles.org/www/articles/floatingbar/floatingbar.htm).
+This library provides the floating-bar type, which gives a memory-efficient representation for rational numbers. It is based on [Inigo Quilez's blog post exploring the concept](https://iquilezles.org/articles/floatingbar).
 
 For more information about the API and implementation details, please refer to the [library documentation](https://docs.rs/floating_bar/).
 
